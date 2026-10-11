@@ -130,13 +130,18 @@ async def fetch_single_meta(aweme_id: str):
 
 
 async def collect_user_videos(sec_user_id: str, on_meta=None) -> list:
-    """采集博主全部作品元信息，分页遍历。on_meta 每次拿到一条即回调（用于进度）。"""
+    """采集博主全部作品元信息，分页遍历直到 has_more=0。
+    on_meta 每次拿到一条即回调（用于进度）。
+    注意：f2 签名 fetch_user_post_videos(sec_user_id, min_cursor, max_cursor, page_counts, max_counts)
+    ——max_counts 传 None 表示不限数量，采集博主全部作品，而不是被截断。
+    """
     from f2.apps.douyin.handler import DouyinHandler
 
     kwargs = build_kwargs()
     handler = DouyinHandler(kwargs)
     metas = []
-    async for aweme_list in handler.fetch_user_post_videos(sec_user_id, 0, 0, 10, 20):
+    # page_counts=20（抖音单页最多约20条），max_counts=None 不限总数 → 翻页直到采完
+    async for aweme_list in handler.fetch_user_post_videos(sec_user_id, 0, 0, 20, None):
         for a in aweme_list._to_list():
             meta = extract_meta(a)
             metas.append(meta)
