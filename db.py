@@ -109,26 +109,28 @@ def list_videos(limit=200, offset=0, status=None, source=None, q=None, author=No
                 date_from=None, date_to=None, min_duration=None, max_duration=None):
     init()
     c = _conn()
-    sql = "SELECT * FROM videos WHERE 1=1"
-    args = []
+    conds, args = [], []
     if status:
-        sql += " AND status=?"; args.append(status)
+        conds.append("status=?"); args.append(status)
     if source:
-        sql += " AND source=?"; args.append(source)
+        conds.append("source=?"); args.append(source)
     if author:
-        sql += " AND author_nickname LIKE ?"; args.append(f"%{author}%")
+        conds.append("author_nickname LIKE ?"); args.append(f"%{author}%")
     if q:
-        sql += " AND (title LIKE ? OR transcript LIKE ?)"; args.append(f"%{q}%"); args.append(f"%{q}%")
+        conds.append("(title LIKE ? OR transcript LIKE ?)")
+        args.append(f"%{q}%"); args.append(f"%{q}%")
     if date_from:
-        sql += " AND publish_time>=?"; args.append(int(date_from))
+        conds.append("publish_time>=?"); args.append(int(date_from))
     if date_to:
-        sql += " AND publish_time<=?"; args.append(int(date_to))
+        conds.append("publish_time<=?"); args.append(int(date_to))
     if min_duration is not None and min_duration != "":
-        sql += " AND duration>=?"; args.append(float(min_duration))
+        conds.append("duration>=?"); args.append(float(min_duration))
     if max_duration is not None and max_duration != "":
-        sql += " AND duration<=?"; args.append(float(max_duration))
-    total = c.execute(sql, args).fetchone()[0]
-    rows = c.execute(sql + " ORDER BY id DESC LIMIT ? OFFSET ?", args + [limit, offset]).fetchall()
+        conds.append("duration<=?"); args.append(float(max_duration))
+    where = (" WHERE " + " AND ".join(conds)) if conds else ""
+    total = c.execute(f"SELECT COUNT(*) FROM videos{where}", args).fetchone()[0]
+    rows = c.execute(f"SELECT * FROM videos{where} ORDER BY id DESC LIMIT ? OFFSET ?",
+                     args + [limit, offset]).fetchall()
     c.close()
     return [dict(r) for r in rows], total
 

@@ -7,6 +7,12 @@
 
 ---
 
+## 🖼 UI Preview
+
+![douyin-distiller console](docs/assets/screenshot.png)
+
+---
+
 ## ✨ Highlights
 
 - **End-to-end automation**: Paste a creator homepage or a single video link — it auto-runs **collect → download → extract audio → transcribe → correct terms → write to Feishu Bitable**, all visible in the web UI.
