@@ -10,6 +10,10 @@ data/
 settings.json
 *.db
 
+# 内部文档（含账号/Token 等敏感信息，仅本地保留，勿上传 Git/GitHub）
+GIT_DEPLOY.md
+CHANGELOG.md
+
 # 日志 / 临时
 *.log
 .DS_Store
