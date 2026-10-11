@@ -56,10 +56,12 @@ def _validate_douyin_url(url: str) -> bool:
 class TaskReq(BaseModel):
     url: str
     order: str = "order"          # 主页批量：order 顺序 / random 随机
+    cookie: str = ""              # 批量页直接填写的抖音 cookie（可选，优先于设置）
 
 
 class SingleReq(BaseModel):
     url: str
+    cookie: str = ""
 
 
 class SettingReq(BaseModel):
@@ -82,12 +84,14 @@ async def create_task(req: TaskReq):
     url = req.url.strip()
     if not _validate_douyin_url(url):
         return JSONResponse({"ok": False, "msg": "链接已被拦截：仅支持 douyin.com 域名，拒绝非抖音/IP/恶意链接"}, status_code=400)
+    if req.cookie.strip():                       # 批量页填写的 cookie 优先，回写配置
+        cfg.set_value("douyin.cookie", req.cookie.strip())
     sec_user_id = f2_worker.resolve_sec_user_id(url)
     if not sec_user_id:
         return JSONResponse({"ok": False, "msg": "无法从链接解析 sec_user_id（需 /user/xxx 格式）"}, status_code=400)
     cookie = cfg.get_section("douyin", "cookie") or ""
     if not cookie:
-        return JSONResponse({"ok": False, "msg": "请先在「设置」页录入抖音 cookie"}, status_code=400)
+        return JSONResponse({"ok": False, "msg": "请提供抖音 cookie（批量页填写或设置页录入）"}, status_code=400)
     tid = worker.manager.new_task(url, sec_user_id, task_type="batch", order=req.order or "order")
     asyncio.create_task(worker.run_pipeline(tid, sec_user_id, order=req.order or "order"))
     return {"ok": True, "task_id": tid}
@@ -99,12 +103,14 @@ async def download_single(req: SingleReq):
     url = req.url.strip()
     if not _validate_douyin_url(url):
         return JSONResponse({"ok": False, "msg": "链接已被拦截：仅支持 douyin.com 域名，拒绝非抖音/IP/恶意链接"}, status_code=400)
+    if req.cookie.strip():                       # 单链接页填写的 cookie 优先，回写配置
+        cfg.set_value("douyin.cookie", req.cookie.strip())
     aweme_id = f2_worker.resolve_aweme_id(url)
     if not aweme_id:
         return JSONResponse({"ok": False, "msg": "无法从链接解析作品ID（需 /video/xxx 或含数字ID）"}, status_code=400)
     cookie = cfg.get_section("douyin", "cookie") or ""
     if not cookie:
-        return JSONResponse({"ok": False, "msg": "请先在「设置」页录入抖音 cookie"}, status_code=400)
+        return JSONResponse({"ok": False, "msg": "请提供抖音 cookie（单链接页填写或设置页录入）"}, status_code=400)
     tid = worker.manager.new_task(url, "", task_type="single")
     asyncio.create_task(worker.process_single(tid, aweme_id))
     return {"ok": True, "task_id": tid}
@@ -115,14 +121,23 @@ async def download_single(req: SingleReq):
 async def list_videos(status: str = None, source: str = None, q: str = None,
                       author: str = None, date_from: int = None, date_to: int = None,
                       min_duration: float = None, max_duration: float = None,
+                      page: int = None, page_size: int = None,
                       limit: int = 200, offset: int = 0):
+    if page is not None and page_size:
+        page_size = max(1, min(page_size, 200))
+        offset = (page - 1) * page_size
+        limit = page_size
+    limit = min(limit, 500)
     rows, total = db.list_videos(
-        limit=min(limit, 500), offset=offset,
+        limit=limit, offset=offset,
         status=status, source=source, q=q, author=author,
         date_from=date_from, date_to=date_to,
         min_duration=min_duration, max_duration=max_duration,
     )
-    return {"ok": True, "items": rows, "total": total, "stats": db.stats()}
+    total_pages = max(1, (total + limit - 1) // limit) if limit else 1
+    cur_page = page or (offset // limit + 1 if limit else 1)
+    return {"ok": True, "items": rows, "total": total, "page": cur_page,
+            "page_size": limit, "total_pages": total_pages, "stats": db.stats()}
 
 
 @app.get("/api/export")

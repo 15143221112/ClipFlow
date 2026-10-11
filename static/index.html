@@ -106,6 +106,8 @@
     <h3>博主主页批量采集下载</h3>
     <label>博主主页链接（可粘贴多条，每行一条）</label>
     <textarea id="bt-url" class="url-ta" placeholder="https://www.douyin.com/user/xxxxx&#10;https://www.douyin.com/user/yyyyy"></textarea>
+    <label>抖音 Cookie（用于采集主页全部作品；会话过期请在此更新，否则无法采集新作品）</label>
+    <textarea id="bt-cookie" class="url-ta" placeholder="粘贴 douyin 登录态 cookie…"></textarea>
     <label>下载顺序</label>
     <select id="bt-order">
       <option value="order">按时间顺序（新→旧）</option>
@@ -163,6 +165,17 @@
       </table>
     </div>
     <div class="empty" id="h-empty" style="display:none">暂无记录</div>
+    <div class="hrow" id="h-pager" style="margin-top:12px;align-items:center;display:none">
+      <button class="btn gray" onclick="goHistPage(-1)">‹ 上一页</button>
+      <span id="h-pageinfo" style="font-size:13px;color:#4e5969"></span>
+      <button class="btn gray" onclick="goHistPage(1)">下一页 ›</button>
+      <span style="font-size:13px;color:#86909c;margin-left:12px">每页</span>
+      <select id="h-pagesize" onchange="hPage=1;refreshHistory()" style="width:80px">
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </div>
   </div>
 </div>
 
@@ -183,6 +196,7 @@
         <option value="xfyun">讯飞语音听写</option>
         <option value="feishu">飞书语音识别</option>
       </select>
+      <div class="hint">可同时配置下方多套引擎参数（本地/讯飞/飞书），通过上方下拉选择当前使用的一个，切换即时生效。</div>
       <div class="sec">
         <label>本地 whisper URL</label>
         <input type="text" id="set-local-url">
@@ -229,15 +243,19 @@
 <script>
 const $ = (id) => document.getElementById(id);
 
-// ------- tab 切换 -------
-document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
-  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
-  t.classList.add('active');
-  $('page-' + t.dataset.page).classList.add('active');
-  if (t.dataset.page === 'settings') loadSettings();
-  if (t.dataset.page === 'history') refreshHistory();
-});
+// ------- tab 切换（刷新后保留当前页）-------
+function activateTab(page) {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.page === page));
+  document.querySelectorAll('.page').forEach(x => x.classList.toggle('active', x.id === 'page-' + page));
+  try { localStorage.setItem('douyin_tab', page); } catch (e) {}
+  if (page === 'settings') loadSettings();
+  if (page === 'history') refreshHistory();
+}
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => activateTab(t.dataset.page));
+(function initTab() {
+  const saved = localStorage.getItem('douyin_tab');
+  activateTab(saved && ['direct','batch','history','settings'].includes(saved) ? saved : 'direct');
+})();
 
 // ------- 直接下载 -------
 async function downloadSingle() {
@@ -266,7 +284,7 @@ async function createBatch() {
   let okN = 0, failN = 0;
   for (const url of lines) {
     try {
-      const r = await fetch('/api/task', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url, order:$('bt-order').value}) });
+      const r = await fetch('/api/task', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url, order:$('bt-order').value, cookie:$('bt-cookie').value.trim()}) });
       const d = await r.json();
       if (d.ok) { okN++; } else { failN++; }
     } catch(e) { failN++; }
@@ -305,7 +323,7 @@ function taskCard(t) {
     return `<div class="vitem">
       <div class="t">${esc(v.title || v.aweme_id)}</div>
       <div class="s">${dsTag} ${tsTag} ${link} ${alink}
-        ${v.transcript ? `<button class="btn gray" style="padding:3px 10px;font-size:12px" onclick="openTranscript(${JSON.stringify(v.transcript)})">逐字稿</button>` : ''}
+        ${v.transcript ? `<button class="btn gray" style="padding:3px 10px;font-size:12px" onclick="openTranscript(this)" data-tt="${esc(v.transcript)}">逐字稿</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -333,8 +351,8 @@ function tag(st) {
   const [c, label] = m[st] || ['warn', st];
   return `<span class="tag ${c}">${label}</span>`;
 }
-function openTranscript(text) {
-  $('modal-body').textContent = text || '';
+function openTranscript(btn) {
+  $('modal-body').textContent = btn.dataset.tt || '';
   $('modal').classList.add('show');
 }
 function closeModal() {
@@ -350,12 +368,15 @@ function urlCheck(u) {
 }
 
 // ------- 历史查询 -------
+let hPage = 1, hPageSize = 20;
 function histQuery() {
   const qs = new URLSearchParams();
   if ($('h-status').value) qs.set('status', $('h-status').value);
   if ($('h-source').value) qs.set('source', $('h-source').value);
   if ($('h-author').value.trim()) qs.set('author', $('h-author').value.trim());
   if ($('h-q').value.trim()) qs.set('q', $('h-q').value.trim());
+  qs.set('page', hPage);
+  qs.set('page_size', hPageSize);
   // 日期 / 时长筛选暂不需要
   // if ($('h-dfrom').value) qs.set('date_from', new Date($('h-dfrom').value).getTime());
   // if ($('h-dto').value) qs.set('date_to', new Date($('h-dto').value + 'T23:59:59').getTime());
@@ -365,6 +386,13 @@ function histQuery() {
   // if (dur === 'gt300') qs.set('min_duration', 300);
   return qs;
 }
+function goHistPage(delta) {
+  const max = parseInt($('h-pageinfo').dataset.max || '1', 10);
+  const np = hPage + delta;
+  if (np < 1 || np > max) return;
+  hPage = np;
+  refreshHistory();
+}
 async function refreshHistory() {
   try {
     const qs = histQuery();
@@ -372,6 +400,10 @@ async function refreshHistory() {
     if (!d.ok) return;
     const s = d.stats || {};
     $('h-stats').innerHTML = `命中 <b>${d.total}</b> 条 | 总数 <b>${s.total||0}</b> · 转写完成 <b>${s.done||0}</b> · 失败 <b>${s.failed||0}</b>`;
+    const tp = d.total_pages || 1, cur = d.page || 1;
+    $('h-pageinfo').dataset.max = tp;
+    $('h-pageinfo').textContent = `第 ${cur} / ${tp} 页（共 ${d.total} 条）`;
+    $('h-pager').style.display = 'flex';
     const items = d.items || [];
     if (!items.length) { $('h-body').innerHTML=''; $('h-empty').style.display='block'; return; }
     $('h-empty').style.display='none';
@@ -381,7 +413,7 @@ async function refreshHistory() {
       const srcTag = v.source==='single' ? '<span class="tag warn">单链接</span>' : '<span class="tag run">主页</span>';
       const vlink = v.local_url ? `<a class="vlink" href="${esc(v.local_url)}" target="_blank">▶</a>` : '—';
       const alink = v.audio_url ? `<a class="vlink" href="${esc(v.audio_url)}" target="_blank">🎵</a>` : '—';
-      const tt = v.transcript ? `<button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="openTranscript(${JSON.stringify(v.transcript)})">查看</button>` : '—';
+      const tt = v.transcript ? `<button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="openTranscript(this)" data-tt="${esc(v.transcript)}">查看</button>` : '—';
       const tm = v.updated_at ? new Date(v.updated_at.replace(' ','T')).toLocaleString() : '';
       return `<tr>
         <td class="cell-title">${esc(v.title||v.aweme_id)}</td>
