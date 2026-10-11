@@ -58,6 +58,16 @@
   .hrow select, .hrow input { width:auto; }
   .cell-title { max-width:320px; word-break:break-all; }
   .filter-active { border-color:#3370ff; box-shadow:0 0 0 3px rgba(51,112,255,.12); }
+  .row > input { flex:1; width:auto; min-width:0; }
+  .row > button { flex:0 0 auto; }
+  textarea.url-ta { min-height:76px; resize:vertical; }
+  /* 逐字稿弹窗 */
+  .modal { display:none; position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:100; align-items:center; justify-content:center; padding:20px; }
+  .modal.show { display:flex; }
+  .modal-box { background:#fff; border-radius:14px; max-width:780px; width:100%; max-height:82vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 10px 40px rgba(0,0,0,.25); }
+  .modal-head { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #eef0f6; }
+  .modal-head b { font-size:15px; color:#1f2329; }
+  .modal-body { padding:16px 18px; overflow:auto; white-space:pre-wrap; word-break:break-all; line-height:1.85; font-size:14px; color:#2a3142; }
   @media(max-width:760px){ .grid2{grid-template-columns:1fr} .row{flex-direction:column;align-items:stretch} }
 </style>
 </head>
@@ -94,8 +104,8 @@
 <div class="page" id="page-batch">
   <div class="card">
     <h3>博主主页批量采集下载</h3>
-    <label>博主主页链接</label>
-    <input type="text" id="bt-url" placeholder="https://www.douyin.com/user/xxxxx">
+    <label>博主主页链接（可粘贴多条，每行一条）</label>
+    <textarea id="bt-url" class="url-ta" placeholder="https://www.douyin.com/user/xxxxx&#10;https://www.douyin.com/user/yyyyy"></textarea>
     <label>下载顺序</label>
     <select id="bt-order">
       <option value="order">按时间顺序（新→旧）</option>
@@ -132,6 +142,7 @@
       </select>
       <input type="text" id="h-author" placeholder="博主名称…" style="width:140px">
       <input type="text" id="h-q" placeholder="搜索标题 / 逐字稿…" style="width:180px">
+      <!-- 日期 / 时长筛选暂不需要
       <input type="date" id="h-dfrom" title="发布日期起">
       <input type="date" id="h-dto" title="发布日期止">
       <select id="h-dur">
@@ -140,6 +151,7 @@
         <option value="60to300">1-5分钟</option>
         <option value="gt300">&gt; 5分钟</option>
       </select>
+      -->
       <button class="btn gray" onclick="refreshHistory()">查询</button>
       <button class="btn" onclick="exportHistory()">导出当前结果</button>
     </div>
@@ -231,6 +243,8 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 async function downloadSingle() {
   const url = $('dl-url').value.trim();
   if (!url) { $('dl-msg').className='msg err'; $('dl-msg').textContent='请粘贴作品链接'; return; }
+  const c = urlCheck(url);
+  if (!c.ok) { $('dl-msg').className='msg err'; $('dl-msg').textContent=c.msg; return; }
   $('dl-msg').className='msg'; $('dl-msg').textContent='提交中...';
   try {
     const r = await fetch('/api/download_single', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url}) });
@@ -244,16 +258,23 @@ async function downloadSingle() {
 
 // ------- 主页批量 -------
 async function createBatch() {
-  const url = $('bt-url').value.trim();
-  if (!url) { $('bt-msg').className='msg err'; $('bt-msg').textContent='请粘贴博主主页链接'; return; }
-  $('bt-msg').className='msg'; $('bt-msg').textContent='提交中...';
-  try {
-    const r = await fetch('/api/task', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url, order:$('bt-order').value}) });
-    const d = await r.json();
-    if (!d.ok) { $('bt-msg').className='msg err'; $('bt-msg').textContent = d.msg; return; }
-    $('bt-msg').className='msg ok'; $('bt-msg').textContent = '✓ 批量任务已提交: ' + d.task_id;
-    refreshTasks();
-  } catch(e){ $('bt-msg').className='msg err'; $('bt-msg').textContent='请求失败: '+e; }
+  const lines = $('bt-url').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!lines.length) { $('bt-msg').className='msg err'; $('bt-msg').textContent='请粘贴博主主页链接'; return; }
+  const bad = lines.find(u => !urlCheck(u).ok);
+  if (bad) { $('bt-msg').className='msg err'; $('bt-msg').textContent=urlCheck(bad).msg; return; }
+  $('bt-msg').className='msg'; $('bt-msg').textContent=`提交中（${lines.length} 条）...`;
+  let okN = 0, failN = 0;
+  for (const url of lines) {
+    try {
+      const r = await fetch('/api/task', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url, order:$('bt-order').value}) });
+      const d = await r.json();
+      if (d.ok) { okN++; } else { failN++; }
+    } catch(e) { failN++; }
+  }
+  $('bt-msg').className='msg ' + (failN ? 'err' : 'ok');
+  $('bt-msg').textContent = failN ? `已提交 ${okN} 条，失败 ${failN} 条` : `✓ 已提交 ${okN} 条批量任务`;
+  $('bt-url').value = '';
+  refreshTasks();
 }
 
 // ------- 任务进度 -------
@@ -284,8 +305,7 @@ function taskCard(t) {
     return `<div class="vitem">
       <div class="t">${esc(v.title || v.aweme_id)}</div>
       <div class="s">${dsTag} ${tsTag} ${link} ${alink}
-        ${v.transcript ? `<button class="btn gray" style="padding:3px 10px;font-size:12px" onclick="toggleTrans(this)">逐字稿</button>
-          <div class="transcript" style="display:none">${esc(v.transcript)}</div>` : ''}
+        ${v.transcript ? `<button class="btn gray" style="padding:3px 10px;font-size:12px" onclick="openTranscript(${JSON.stringify(v.transcript)})">逐字稿</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -313,7 +333,21 @@ function tag(st) {
   const [c, label] = m[st] || ['warn', st];
   return `<span class="tag ${c}">${label}</span>`;
 }
-function toggleTrans(btn) { const box = btn.nextElementSibling; box.style.display = box.style.display==='none' ? 'block' : 'none'; }
+function openTranscript(text) {
+  $('modal-body').textContent = text || '';
+  $('modal').classList.add('show');
+}
+function closeModal() {
+  $('modal').classList.remove('show');
+}
+function urlCheck(u) {
+  // 安全过滤：只接受 douyin.com 域名链接
+  try {
+    const host = new URL(u).hostname.toLowerCase();
+    if (host === 'douyin.com' || host.endsWith('.douyin.com')) return { ok: true };
+    return { ok: false, msg: '仅支持 douyin.com 域名链接，已拦截可疑/非抖音链接' };
+  } catch (e) { return { ok: false, msg: '链接格式无效' }; }
+}
 
 // ------- 历史查询 -------
 function histQuery() {
@@ -322,12 +356,13 @@ function histQuery() {
   if ($('h-source').value) qs.set('source', $('h-source').value);
   if ($('h-author').value.trim()) qs.set('author', $('h-author').value.trim());
   if ($('h-q').value.trim()) qs.set('q', $('h-q').value.trim());
-  if ($('h-dfrom').value) qs.set('date_from', new Date($('h-dfrom').value).getTime());
-  if ($('h-dto').value) qs.set('date_to', new Date($('h-dto').value + 'T23:59:59').getTime());
-  const dur = $('h-dur').value;
-  if (dur === 'lt60') qs.set('max_duration', 60);
-  if (dur === '60to300') { qs.set('min_duration', 60); qs.set('max_duration', 300); }
-  if (dur === 'gt300') qs.set('min_duration', 300);
+  // 日期 / 时长筛选暂不需要
+  // if ($('h-dfrom').value) qs.set('date_from', new Date($('h-dfrom').value).getTime());
+  // if ($('h-dto').value) qs.set('date_to', new Date($('h-dto').value + 'T23:59:59').getTime());
+  // const dur = $('h-dur').value;
+  // if (dur === 'lt60') qs.set('max_duration', 60);
+  // if (dur === '60to300') { qs.set('min_duration', 60); qs.set('max_duration', 300); }
+  // if (dur === 'gt300') qs.set('min_duration', 300);
   return qs;
 }
 async function refreshHistory() {
@@ -346,8 +381,7 @@ async function refreshHistory() {
       const srcTag = v.source==='single' ? '<span class="tag warn">单链接</span>' : '<span class="tag run">主页</span>';
       const vlink = v.local_url ? `<a class="vlink" href="${esc(v.local_url)}" target="_blank">▶</a>` : '—';
       const alink = v.audio_url ? `<a class="vlink" href="${esc(v.audio_url)}" target="_blank">🎵</a>` : '—';
-      const tt = v.transcript ? `<button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="toggleTrans(this)">查看</button>
-        <div class="transcript" style="display:none">${esc(v.transcript)}</div>` : '—';
+      const tt = v.transcript ? `<button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="openTranscript(${JSON.stringify(v.transcript)})">查看</button>` : '—';
       const tm = v.updated_at ? new Date(v.updated_at.replace(' ','T')).toLocaleString() : '';
       return `<tr>
         <td class="cell-title">${esc(v.title||v.aweme_id)}</td>
@@ -415,5 +449,17 @@ function esc(s){ return (s||'').toString().replace(/[&<>"]/g, c => ({'&':'&amp;'
 setInterval(refreshTasks, 3000);
 refreshTasks();
 </script>
+
+<!-- 逐字稿弹窗 -->
+<div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <b>📝 逐字稿</b>
+      <button class="btn gray" onclick="closeModal()">关闭</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
 </body>
 </html>

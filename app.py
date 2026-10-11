@@ -5,6 +5,8 @@ douyin-distiller Web 主程序（FastAPI）。
 import asyncio
 import os
 import traceback
+import ipaddress
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
@@ -26,6 +28,28 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
 
 db.init()
+
+
+# ---------------- 安全校验
+def _validate_douyin_url(url: str) -> bool:
+    """只允许 http(s) + douyin.com 域名；拒绝 IP/内网/其他域（防 SSRF / 恶意链接）。"""
+    try:
+        p = urlparse(url.strip())
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = (p.hostname or "").lower()
+    if not host:
+        return False
+    # 拒绝 IP（含内网/回环/链接解析）
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    # 只允许 douyin.com 及其子域
+    return host == "douyin.com" or host.endswith(".douyin.com")
 
 
 # ---------------- 请求模型
@@ -56,6 +80,8 @@ async def index():
 async def create_task(req: TaskReq):
     """主页批量：采集全部作品链接入库 → 顺序/随机逐个下载转写。"""
     url = req.url.strip()
+    if not _validate_douyin_url(url):
+        return JSONResponse({"ok": False, "msg": "链接已被拦截：仅支持 douyin.com 域名，拒绝非抖音/IP/恶意链接"}, status_code=400)
     sec_user_id = f2_worker.resolve_sec_user_id(url)
     if not sec_user_id:
         return JSONResponse({"ok": False, "msg": "无法从链接解析 sec_user_id（需 /user/xxx 格式）"}, status_code=400)
@@ -71,6 +97,8 @@ async def create_task(req: TaskReq):
 async def download_single(req: SingleReq):
     """单链接下载：输入单个作品链接 → 入库(single) → 下载转写。"""
     url = req.url.strip()
+    if not _validate_douyin_url(url):
+        return JSONResponse({"ok": False, "msg": "链接已被拦截：仅支持 douyin.com 域名，拒绝非抖音/IP/恶意链接"}, status_code=400)
     aweme_id = f2_worker.resolve_aweme_id(url)
     if not aweme_id:
         return JSONResponse({"ok": False, "msg": "无法从链接解析作品ID（需 /video/xxx 或含数字ID）"}, status_code=400)
