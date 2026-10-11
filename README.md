@@ -22,6 +22,8 @@
 - **单链接 / 主页批量双入口**：批量支持「顺序 / 随机」，先采集全部作品链接入库，再逐个稳定处理。
 - **数据库持久化**：所有作品与设置存 SQLite（videos 表 + settings 表），页面设置即时生效，重启不丢。
 - **条件查询 + 按需导出**：历史页支持状态／来源／作者／发布日期范围／时长／关键词筛选，导出**只导出当前筛选结果**（CSV，Excel 直开不乱码）。
+- **历史记录可重跑 / 可删**：每条作品提供「重转写」（用本地音频，无需 cookie）／「重下载」（需 cookie）／「删除」（连本地视频音频一并清掉）。
+- **批量自动过滤直播类**：主页批量采集时自动跳过标题含「直播回顾 / 直播预告 / 直播开始 / 直播回放」的作品（可用 `douyin.skip_titles` 配置）。
 - **本地视频/音频可访问**：`/data` 静态挂载，页面一键查看、播放、下载。
 - **飞书多维表深度集成**：字段自动创建，写入按 aweme_id **upsert**（存在更新、不存在新建），已存在作品会覆盖为最新文本，杜绝重复。
 - **易部署**：原生 `venv + systemd` 或 `Docker / docker-compose` 一键启动，配置集中于单个 `settings.json`。
@@ -35,6 +37,9 @@
 | 单链接下载 | 粘贴单条作品链接 → 下载 → 转写 → 入库 → 写飞书 |
 | 主页批量 | 输入博主主页 → 采集全部作品链接入库 → 顺序/随机逐个下载转写 |
 | 历史查询 | 状态/来源/作者/发布日期/时长/关键词多条件组合查询 |
+| 历史重跑 | 每条可「重转写」（本地音频，无需 cookie）或「重下载」（需 cookie） |
+| 记录删除 | 删除记录及本地视频/音频文件（确认后不可恢复） |
+| 批量过滤 | 自动跳过直播回顾/预告/开始/回放类作品（可配置 douyin.skip_titles） |
 | 按条件导出 | 导出当前筛选结果的 CSV（UTF-8 BOM，Excel 直开） |
 | 语音转写 | 本地 Whisper / 讯飞 / 飞书三通道可切换 |
 | 术语纠错 | LLM 补标点 + 纠正专业同音字（内置水稻/农业术语词表） |
@@ -149,8 +154,8 @@ sudo systemctl enable --now douyin-distiller
 ## 🧩 使用流程
 
 1. **直接下载**：粘贴单条视频链接 → 下载并转写 → 自动入库 + 写飞书。
-2. **主页批量**：粘贴博主主页 → 选「顺序 / 随机」→ 采集全部作品链接入库 → 逐个下载转写。
-3. **历史查询**：多条件筛选，查看视频/音频/逐字稿，点击「导出当前结果」下载 CSV。
+2. **主页批量**：粘贴博主主页 → 选「顺序 / 随机」→ 采集全部作品链接入库 → 逐个下载转写（直播回顾/预告类自动跳过）。
+3. **历史查询**：多条件筛选，查看视频/音频/逐字稿；每条可「重转写 / 重下载 / 删除」；点击「导出当前结果」下载 CSV。
 4. **设置**：录入 cookie、ASR 通道、飞书、LLM。
 
 > **飞书多维表权限三件套（官方要求）**：① 开通应用身份 `bitable:app` 权限 → ② 发布应用版本 → ③ 把应用添加为该多维表协作者并授予「可管理」。否则写入报 91403 Forbidden。`wiki` 链接的 `wiki_token` 可直接当 `base_token` 使用。
@@ -163,6 +168,8 @@ sudo systemctl enable --now douyin-distiller
 |---|---|---|
 | POST | `/api/task` | 主页批量（body: `{"url","order":"order|random"}`） |
 | POST | `/api/download_single` | 单链接下载（body: `{"url"}`） |
+| POST | `/api/reprocess` | 重试（body: `{"aweme_id","mode":"transcribe|download"}`） |
+| DELETE | `/api/video/{aweme_id}` | 删除记录（`?delete_files=1` 连本地文件一起删） |
 | GET | `/api/tasks` | 全部任务实时进度 |
 | GET | `/api/videos` | 历史查询（status/source/author/q/date_from/date_to/min_duration/max_duration/limit/offset） |
 | GET | `/api/export` | 按当前查询条件导出 CSV |
@@ -186,6 +193,12 @@ sudo systemctl enable --now douyin-distiller
 **Q: 视频/音频存在哪？**
 `download.root`（默认 `/opt/douyin-web/data`）按任务建子目录，页面通过 `/data/...` 访问。
 
+**Q: 某条没有逐字稿，为什么？**
+多为短视频预告/直播回顾（无配音），whisper 转不出文字，状态标「无语音」；可在历史页点「重转写」复核，或「删除」清理。
+
+**Q: 批量采集会碰到很多直播/预告吗？**
+已默认自动跳过标题含「直播回顾 / 直播预告 / 直播开始 / 直播回放」的作品，如需自定义在设置里配 `douyin.skip_titles`。
+
 ---
 
 ## 🛣 路线图
@@ -194,6 +207,8 @@ sudo systemctl enable --now douyin-distiller
 - [x] 三通道 ASR + LLM 术语纠错
 - [x] SQLite 持久化 + 设置入库
 - [x] 条件查询 + 按需导出 CSV
+- [x] 历史记录重转写 / 重下载 / 删除
+- [x] 批量自动过滤直播类作品
 - [x] 飞书多维表 upsert 写入
 - [x] Docker / systemd 部署
 - [ ] 互动统计（点赞/评论）补齐
