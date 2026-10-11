@@ -69,6 +69,11 @@ class SettingReq(BaseModel):
     values: dict
 
 
+class ReprocessReq(BaseModel):
+    aweme_id: str
+    mode: str = "transcribe"   # transcribe=只重转写(用本地音频) / download=重新下载+转写
+
+
 # ---------------- 前端页面
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -114,6 +119,48 @@ async def download_single(req: SingleReq):
     tid = worker.manager.new_task(url, "", task_type="single")
     asyncio.create_task(worker.process_single(tid, aweme_id))
     return {"ok": True, "task_id": tid}
+
+
+@app.post("/api/reprocess")
+async def reprocess(req: ReprocessReq):
+    """历史记录重试：对已入库作品重新转写（transcribe，用本地音频，无需 cookie）
+    或重新下载+转写（download，需 cookie）。"""
+    aweme_id = (req.aweme_id or "").strip()
+    mode = (req.mode or "transcribe").strip().lower()
+    if mode not in ("transcribe", "download"):
+        return JSONResponse({"ok": False, "msg": "mode 仅支持 transcribe / download"}, status_code=400)
+    if not aweme_id:
+        return JSONResponse({"ok": False, "msg": "缺少 aweme_id"}, status_code=400)
+    tid = worker.manager.new_task("", "", task_type="single")
+    asyncio.create_task(worker.reprocess_single(aweme_id, mode))
+    return {"ok": True, "task_id": tid, "mode": mode}
+
+
+@app.delete("/api/video/{aweme_id}")
+async def delete_video(aweme_id: str, delete_files: int = 1):
+    """删除一条历史记录，默认同时删除本地视频/音频文件（及其空目录）。"""
+    row = db.get_by_aweme(aweme_id)
+    if not row:
+        return JSONResponse({"ok": False, "msg": "记录不存在"}, status_code=404)
+    removed = []
+    if delete_files:
+        for p in (row.get("local_path"), row.get("audio_path")):
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                    removed.append(p)
+                except Exception:
+                    pass
+        # 清理由此留下的空任务目录
+        for p in list(removed):
+            d = os.path.dirname(p)
+            try:
+                if os.path.isdir(d) and not os.listdir(d):
+                    os.rmdir(d)
+            except Exception:
+                pass
+    db.delete_video(aweme_id)
+    return {"ok": True, "removed_files": removed}
 
 
 # ---------------- 历史查询

@@ -105,6 +105,17 @@ def get_by_aweme(aweme_id: str):
     return dict(row) if row else None
 
 
+def delete_video(aweme_id: str):
+    """按 aweme_id 删除记录。"""
+    if not aweme_id:
+        return
+    init()
+    c = _conn()
+    c.execute("DELETE FROM videos WHERE aweme_id=?", (aweme_id,))
+    c.commit()
+    c.close()
+
+
 def list_videos(limit=200, offset=0, status=None, source=None, q=None, author=None,
                 date_from=None, date_to=None, min_duration=None, max_duration=None):
     init()

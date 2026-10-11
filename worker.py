@@ -200,12 +200,21 @@ async def _process_one(meta, task, user_path, lark, engine):
 
 
 async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order"):
-    """主页批量：采集全部作品链接入库 → 按顺序/随机逐个下载转写。"""
+    """主页批量：采集全部作品链接入库 → 按顺序/随机逐个下载转写。
+    支持过滤：标题命中 skip_titles 的作品（如直播回顾/预告）不入库、不下载、不转写。
+    skip_titles 可在设置页 douyin.skip_titles 配置，默认过滤直播回顾/预告/开始/回放。"""
     task = manager.get(task_id)
     if not task:
         return
     task["status"] = "running"
     try:
+        skips = cfg.get_section("douyin", "skip_titles") or \
+            ["直播回顾", "直播预告", "直播开始", "直播回放"]
+
+        def _skip(m):
+            t = (m.get("title") or "")
+            return any(k and k in t for k in skips)
+
         lark = _feishu_client()
         if lark:
             try:
@@ -216,19 +225,28 @@ async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order"):
         user_path = os.path.join(ROOT, task_id)
         os.makedirs(user_path, exist_ok=True)
 
-        # 1. 采集全部作品 → 入库（source=batch）
-        metas = await f2_worker.collect_user_videos(
-            sec_user_id,
-            on_meta=lambda m: _set_meta(task, m, download_status="pending",
-                                        transcript_status="pending", transcript="", local_path=""),
-        )
+        # 1. 采集全部作品（回调时跳过直播类，不入 task.videos）
+        def _on_meta(m):
+            if _skip(m):
+                task["skip_count"] = task.get("skip_count", 0) + 1
+                return
+            _set_meta(task, m, download_status="pending",
+                      transcript_status="pending", transcript="", local_path="")
+
+        metas = await f2_worker.collect_user_videos(sec_user_id, on_meta=_on_meta)
         if not metas:
             task["status"] = "failed"
             task["error"] = "未采集到任何作品（请检查 cookie 是否有效）"
             return
         task["nickname"] = metas[0].get("author_nickname", "")
+        skipped = 0
         for m in metas:
+            if _skip(m):
+                skipped += 1
+                continue
             db.upsert_video(_record_for(m, "batch"))
+        if skipped:
+            task["skip_count"] = skipped
 
         # 2. 逐条处理（顺序/随机）
         engine = cfg.get_section("asr", "engine") or "local"
@@ -273,6 +291,83 @@ async def process_single(task_id: str, aweme_id: str):
         os.makedirs(user_path, exist_ok=True)
         engine = cfg.get_section("asr", "engine") or "local"
         await _process_one(meta, task, user_path, lark, engine)
+        task["status"] = "done"
+    except Exception as e:
+        task["status"] = "failed"
+        task["error"] = str(e)
+
+
+async def reprocess_single(aweme_id: str, mode: str = "transcribe"):
+    """重试单条作品：
+    - transcribe：用已下载的本地音频/视频只重新转写（不依赖 cookie）
+    - download：重新获取元信息并下载+转写（需 cookie）
+    复用内存任务，前端进度条可见。
+    """
+    tid = manager.new_task("", "", task_type="single")
+    task = manager.get(tid)
+    task["status"] = "running"
+    try:
+        row = db.get_by_aweme(aweme_id)
+        if not row:
+            task["status"] = "failed"
+            task["error"] = "记录不存在"
+            return
+        task["nickname"] = row.get("author_nickname", "")
+        engine = cfg.get_section("asr", "engine") or "local"
+        lark = _feishu_client()
+
+        meta = {
+            "aweme_id": aweme_id,
+            "title": row.get("title", ""),
+            "video_url": row.get("douyin_url", ""),
+            "author_nickname": row.get("author_nickname", ""),
+            "local_path": row.get("local_path", ""),
+            "audio_path": row.get("audio_path", ""),
+            "transcript": row.get("transcript", ""),
+            "publish_time": row.get("publish_time", 0),
+            "duration": row.get("duration", 0),
+            "desc": row.get("title", ""),
+        }
+
+        if mode == "transcribe":
+            audio = row.get("audio_path")
+            video = row.get("local_path")
+            path = audio or video
+            if not path or not os.path.exists(path):
+                task["status"] = "failed"
+                task["error"] = "本地无音频/视频文件，请改用「重新下载」"
+                return
+            _set_meta(task, meta, download_status="downloaded",
+                      transcript_status="transcribing", local_path=video, audio_path=audio)
+            text = ""
+            try:
+                text = await transcribe(path, engine=engine)
+            except Exception as e:
+                text = ""
+                _set_meta(task, meta, transcript_status="failed", transcript=f"[转写失败]{e}")
+                db.update_video(aweme_id, transcript_status="failed", transcript=f"[转写失败]{e}")
+            ts = "done" if text else "empty"          # empty=有语音但未转出（如无配音视频）
+            st = "转写完成" if text else "已下载"
+            _set_meta(task, meta, transcript=text, transcript_status=ts, status=st)
+            db.update_video(aweme_id, status=st, transcript_status=ts, transcript=text)
+            if lark and text:
+                try:
+                    lark.upsert_by_aweme([(aweme_id, _row_for(_merged_meta(task, meta), st))])
+                    _set_meta(task, meta, write_status="ok")
+                except Exception as e:
+                    _set_meta(task, meta, write_status="failed", write_error=str(e))
+        else:  # download：重新下载 + 转写
+            meta_f = await f2_worker.fetch_single_meta(aweme_id)
+            if not meta_f or not meta_f.get("aweme_id"):
+                task["status"] = "failed"
+                task["error"] = "无法获取作品信息，请检查 cookie 是否有效"
+                return
+            task["nickname"] = meta_f.get("author_nickname", "")
+            user_path = os.path.join(ROOT, tid)
+            os.makedirs(user_path, exist_ok=True)
+            _set_meta(task, meta_f, download_status="pending", transcript_status="pending",
+                      transcript="", local_path="")
+            await _process_one(meta_f, task, user_path, lark, engine)
         task["status"] = "done"
     except Exception as e:
         task["status"] = "failed"

@@ -171,7 +171,7 @@
     <div class="stat" id="h-stats" style="margin-bottom:12px"></div>
     <div style="overflow-x:auto">
       <table>
-        <thead><tr><th>标题</th><th>来源</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>时间</th></tr></thead>
+        <thead><tr><th>标题</th><th>来源</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>时间</th><th>操作</th></tr></thead>
         <tbody id="h-body"></tbody>
       </table>
     </div>
@@ -368,13 +368,14 @@ function taskCard(t) {
       <span>已下载 <b>${downloaded}</b></span>
       <span>转写完成 <b>${done}</b></span>
       <span>失败 <b>${failed}</b></span>
+      ${t.skip_count ? `<span>跳过(直播类) <b>${t.skip_count}</b></span>` : ''}
     </div>
     ${body}
   </div>`;
 }
 function tag(st) {
   const m = {pending:['warn','待处理'], downloading:['run','下载中'], downloaded:['ok','已下载'],
-    transcribing:['run','转写中'], done:['ok','转写完成'], failed:['fail','失败']};
+    transcribing:['run','转写中'], done:['ok','转写完成'], empty:['warn','无语音'], failed:['fail','失败']};
   const [c, label] = m[st] || ['warn', st];
   return `<span class="tag ${c}">${label}</span>`;
 }
@@ -442,11 +443,16 @@ async function refreshHistory() {
       const alink = v.audio_url ? `<a class="vlink" href="${esc(v.audio_url)}" target="_blank">🎵</a>` : '—';
       const tt = v.transcript ? `<button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="openTranscript(this)" data-tt="${esc(v.transcript)}">查看</button>` : '—';
       const tm = v.updated_at ? new Date(v.updated_at.replace(' ','T')).toLocaleString() : '';
+      const ops = `
+        <button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="reworkVideo('${v.aweme_id}','transcribe')" title="用本地音频重新转写（无需 cookie）">重转写</button>
+        <button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="reworkVideo('${v.aweme_id}','download')" title="重新下载视频并转写（需 cookie）">重下载</button>
+        <button class="btn gray" style="padding:2px 8px;font-size:12px;color:#fff;background:#f53f3f" onclick="delVideo('${v.aweme_id}')" title="删除记录及本地视频/音频文件">删除</button>`;
       return `<tr>
         <td class="cell-title">${esc(v.title||v.aweme_id)}</td>
         <td>${srcTag}</td>
         <td>${stTag}</td>
         <td>${vlink}</td><td>${alink}</td><td>${tt}</td><td style="white-space:nowrap;font-size:12px;color:#86909c">${tm}</td>
+        <td style="white-space:nowrap">${ops}</td>
       </tr>`;
     }).join('');
   } catch(e) {}
@@ -454,6 +460,26 @@ async function refreshHistory() {
 function exportHistory() {
   const qs = histQuery();
   window.location = '/api/export?' + qs.toString();
+}
+async function reworkVideo(aweme_id, mode) {
+  try {
+    const r = await fetch('/api/reprocess', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({aweme_id, mode})});
+    const d = await r.json();
+    if (!d.ok) { alert(d.msg || '重试失败'); return; }
+    switchTab('dl');         // 跳首页看任务进度卡
+    loadTasks();                // 立刻拉一次，任务卡显示进度
+    refreshHistory();
+  } catch(e) { alert('重试请求失败：' + e); }
+}
+async function delVideo(aweme_id) {
+  if (!confirm('确认删除该记录？将同时删除本地视频/音频文件（不可恢复）。')) return;
+  try {
+    const r = await fetch('/api/video/' + encodeURIComponent(aweme_id), {method:'DELETE'});
+    const d = await r.json();
+    if (!d.ok) { alert(d.msg || '删除失败'); return; }
+    refreshHistory();
+  } catch(e) { alert('删除请求失败：' + e); }
 }
 
 // ------- 设置 -------
