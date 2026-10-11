@@ -1,0 +1,10 @@
+# douyin-distiller 依赖
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+httpx>=0.27
+f2>=0.0.1.7
+
+# 说明：ASR 转写（whisper）走外部 HTTP 服务（8003），本应用不内置
+# 转写文本纠错走 LLM（阿里 qwen-max / 本地 vLLM OpenAI 兼容端点）
+# 系统需预装 ffmpeg（用于从 mp4 提取音轨）

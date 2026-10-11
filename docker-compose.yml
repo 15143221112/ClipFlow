@@ -1,0 +1,15 @@
+services:
+  douyin-distiller:
+    build: .
+    container_name: douyin-distiller
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-9009}:9009"
+    environment:
+      - DATA_DIR=/data
+    volumes:
+      # 下载根 + SQLite 数据库（持久化，勿删）
+      - ./data:/data
+      # 配置（含 cookie/飞书/LLM 等敏感项，见 settings.example.json 模板）
+      - ./settings.json:/app/settings.json
+    # ASR whisper 与 LLM 纠错均为外部服务，无需容器网络内联

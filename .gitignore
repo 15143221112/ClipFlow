@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 数据与配置（含敏感项，勿提交）
+data/
+settings.json
+*.db
+
+# 日志 / 临时
+*.log
+.DS_Store
+.env
+
+# IDE
+.idea/
+.vscode/

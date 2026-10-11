@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>douyin-distiller 控制台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: linear-gradient(160deg,#eef1f8 0%,#f6f7fb 40%,#eef3fb 100%); color:#1f2329; min-height:100vh; }
+  header { background: linear-gradient(120deg,#1f3f8f 0%,#3370ff 55%,#5b8cff 100%); color:#fff; padding:16px 28px; display:flex; align-items:center; gap:20px; box-shadow:0 2px 12px rgba(31,63,143,.25); position:sticky; top:0; z-index:10; }
+  header h1 { font-size:19px; font-weight:700; display:flex; align-items:center; gap:10px; }
+  header h1 .logo { width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:16px; }
+  .tabs { display:flex; gap:6px; margin-left:auto; background:rgba(255,255,255,.14); padding:4px; border-radius:12px; }
+  .tab { padding:7px 18px; border-radius:9px; cursor:pointer; color:rgba(255,255,255,.85); font-size:14px; font-weight:500; transition:.2s; }
+  .tab.active { background:#fff; color:#3370ff; font-weight:600; box-shadow:0 2px 6px rgba(0,0,0,.12); }
+  .page { max-width:1120px; margin:26px auto; padding:0 20px; display:none; }
+  .page.active { display:block; animation:fade .25s; }
+  @keyframes fade { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+  .card { background:#fff; border-radius:14px; padding:22px 24px; margin-bottom:18px; box-shadow:0 2px 14px rgba(31,63,143,.07); border:1px solid #eef0f6; }
+  .card h3 { font-size:15px; margin-bottom:14px; color:#1f2329; font-weight:600; display:flex; align-items:center; gap:8px; }
+  .card h3::before { content:''; width:4px; height:16px; background:linear-gradient(180deg,#3370ff,#6aa0ff); border-radius:2px; }
+  label { display:block; font-size:13px; color:#5a6478; margin:12px 0 5px; font-weight:500; }
+  input[type=text], input[type=password], select, textarea { width:100%; padding:10px 12px; border:1px solid #dfe3ee; border-radius:9px; font-size:13px; background:#fbfcff; transition:.2s; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:#3370ff; box-shadow:0 0 0 3px rgba(51,112,255,.12); background:#fff; }
+  .btn { background:linear-gradient(120deg,#3370ff,#4f86ff); color:#fff; border:none; padding:10px 22px; border-radius:9px; cursor:pointer; font-size:14px; font-weight:600; box-shadow:0 2px 8px rgba(51,112,255,.25); transition:.2s; }
+  .btn:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(51,112,255,.35); }
+  .btn.gray { background:#eef1f6; color:#4e5969; box-shadow:none; font-weight:500; }
+  .btn.gray:hover { background:#e3e8f2; transform:none; box-shadow:none; }
+  .row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .stat { display:flex; gap:26px; font-size:13px; color:#5a6478; flex-wrap:wrap; }
+  .stat b { color:#1f2329; font-size:16px; margin-left:2px; }
+  .vitem { border:1px solid #f0f2f8; border-radius:10px; padding:12px 14px; margin-bottom:10px; background:#fafbfe; }
+  .vitem .t { font-weight:600; font-size:13px; color:#1f2329; }
+  .vitem .s { font-size:12px; color:#5a6478; margin-top:6px; display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+  .tag { display:inline-block; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:500; }
+  .tag.ok { background:#e6f7ef; color:#16a34a; }
+  .tag.run { background:#e8f1ff; color:#3370ff; }
+  .tag.warn { background:#fff5e6; color:#d97706; }
+  .tag.fail { background:#fdecea; color:#dc2626; }
+  .vlink { color:#3370ff; text-decoration:none; font-size:12px; border:1px solid #b9ccff; padding:2px 10px; border-radius:14px; background:#eef4ff; transition:.2s; }
+  .vlink:hover { background:#d9e7ff; }
+  .transcript { background:#f4f6fc; padding:12px 14px; border-radius:9px; font-size:13px; margin-top:8px; white-space:pre-wrap; word-break:break-all; max-height:220px; overflow:auto; line-height:1.7; border:1px solid #e7ecf8; }
+  .msg { font-size:13px; margin-top:10px; }
+  .msg.ok { color:#16a34a; } .msg.err { color:#dc2626; }
+  .sec { border-left:3px solid #3370ff; padding-left:14px; margin-top:14px; }
+  .hint { font-size:12px; color:#9aa3b5; margin-top:4px; }
+  .empty { text-align:center; color:#9aa3b5; font-size:13px; padding:26px 0; }
+  .prog { height:6px; background:#eef0f6; border-radius:3px; overflow:hidden; margin:10px 0 4px; }
+  .prog > i { display:block; height:100%; background:linear-gradient(90deg,#3370ff,#6aa0ff); border-radius:3px; transition:width .4s; }
+  .task-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  .task-head .meta { font-size:12px; color:#9aa3b5; font-weight:400; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; padding:10px 8px; color:#5a6478; font-weight:600; border-bottom:2px solid #eef0f6; background:#fafbfe; }
+  td { padding:9px 8px; border-bottom:1px solid #f0f2f8; vertical-align:top; }
+  tr:hover td { background:#f7f9ff; }
+  .hrow { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .hrow select, .hrow input { width:auto; }
+  .cell-title { max-width:320px; word-break:break-all; }
+  .filter-active { border-color:#3370ff; box-shadow:0 0 0 3px rgba(51,112,255,.12); }
+  @media(max-width:760px){ .grid2{grid-template-columns:1fr} .row{flex-direction:column;align-items:stretch} }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="logo">📥</span> douyin-distiller 控制台</h1>
+  <div class="tabs">
+    <div class="tab active" data-page="dl">直接下载</div>
+    <div class="tab" data-page="batch">主页批量</div>
+    <div class="tab" data-page="history">历史查询</div>
+    <div class="tab" data-page="settings">设置</div>
+  </div>
+</header>
+
+<!-- ===== 直接下载 ===== -->
+<div class="page active" id="page-dl">
+  <div class="card">
+    <h3>单条链接直接下载</h3>
+    <label>作品链接（https://www.douyin.com/video/xxx 或分享链接）</label>
+    <div class="row">
+      <input type="text" id="dl-url" placeholder="粘贴单个作品链接">
+      <button class="btn" onclick="downloadSingle()">下载并转写</button>
+    </div>
+    <div class="hint">作品信息会自动入库（历史查询可看），随后下载 mp4 → 提取音频 → 转写（带术语纠错）→ 写入飞书。cookie 过期不影响已入库链接的重新处理。</div>
+    <div class="msg" id="dl-msg"></div>
+  </div>
+  <div class="card">
+    <h3>单条任务进度</h3>
+    <div id="dl-task"></div>
+  </div>
+</div>
+
+<!-- ===== 主页批量 ===== -->
+<div class="page" id="page-batch">
+  <div class="card">
+    <h3>博主主页批量采集下载</h3>
+    <label>博主主页链接</label>
+    <input type="text" id="bt-url" placeholder="https://www.douyin.com/user/xxxxx">
+    <label>下载顺序</label>
+    <select id="bt-order">
+      <option value="order">按时间顺序（新→旧）</option>
+      <option value="random">随机顺序</option>
+    </select>
+    <div class="row" style="margin-top:16px;">
+      <button class="btn" onclick="createBatch()">开始批量任务</button>
+    </div>
+    <div class="hint">先通过 cookie 采集博主全部作品链接并入库（batch），再按所选顺序逐个下载转写。cookie 过期后，已入库的作品仍可单独重新下载。</div>
+    <div class="msg" id="bt-msg"></div>
+  </div>
+  <div class="card">
+    <h3>批量任务进度</h3>
+    <div id="bt-task"></div>
+  </div>
+</div>
+
+<!-- ===== 历史查询 ===== -->
+<div class="page" id="page-history">
+  <div class="card">
+    <h3>下载 / 转写历史</h3>
+    <div class="hrow">
+      <select id="h-status">
+        <option value="">全部状态</option>
+        <option value="待处理">待处理</option>
+        <option value="已下载">已下载</option>
+        <option value="转写完成">转写完成</option>
+        <option value="失败">失败</option>
+      </select>
+      <select id="h-source">
+        <option value="">全部来源</option>
+        <option value="single">单链接</option>
+        <option value="batch">主页批量</option>
+      </select>
+      <input type="text" id="h-author" placeholder="博主名称…" style="width:140px">
+      <input type="text" id="h-q" placeholder="搜索标题 / 逐字稿…" style="width:180px">
+      <input type="date" id="h-dfrom" title="发布日期起">
+      <input type="date" id="h-dto" title="发布日期止">
+      <select id="h-dur">
+        <option value="">全部时长</option>
+        <option value="lt60">&lt; 1分钟</option>
+        <option value="60to300">1-5分钟</option>
+        <option value="gt300">&gt; 5分钟</option>
+      </select>
+      <button class="btn gray" onclick="refreshHistory()">查询</button>
+      <button class="btn" onclick="exportHistory()">导出当前结果</button>
+    </div>
+    <div class="stat" id="h-stats" style="margin-bottom:12px"></div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>标题</th><th>来源</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>时间</th></tr></thead>
+        <tbody id="h-body"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="h-empty" style="display:none">暂无记录</div>
+  </div>
+</div>
+
+<!-- ===== 设置 ===== -->
+<div class="page" id="page-settings">
+  <div class="grid2">
+    <div class="card">
+      <h3>抖音 cookie</h3>
+      <label>cookie（采集/单链接下载必需，从浏览器登录 douyin.com 抓取）</label>
+      <textarea id="set-cookie" rows="4" placeholder="粘贴抖音 cookie"></textarea>
+      <div class="hint">登录态 cookie 约一个月有效；已入库的作品链接不依赖 cookie 即可重新下载。</div>
+    </div>
+    <div class="card">
+      <h3>语音转写引擎</h3>
+      <label>引擎</label>
+      <select id="set-engine">
+        <option value="local">本地 whisper (8003)</option>
+        <option value="xfyun">讯飞语音听写</option>
+        <option value="feishu">飞书语音识别</option>
+      </select>
+      <div class="sec">
+        <label>本地 whisper URL</label>
+        <input type="text" id="set-local-url">
+      </div>
+      <div class="sec">
+        <label>讯飞 app_id / api_key / api_secret</label>
+        <input type="text" id="set-xf-appid" placeholder="app_id">
+        <input type="password" id="set-xf-key" placeholder="api_key">
+        <input type="password" id="set-xf-secret" placeholder="api_secret">
+      </div>
+      <div class="sec">
+        <label>飞书语音 app_id / app_secret / 端点</label>
+        <input type="text" id="set-fs-appid" placeholder="app_id">
+        <input type="password" id="set-fs-secret" placeholder="app_secret">
+        <input type="text" id="set-fs-endpoint" placeholder="api_endpoint">
+      </div>
+    </div>
+    <div class="card">
+      <h3>飞书多维表（写入目标）</h3>
+      <label>app_id / app_secret</label>
+      <input type="text" id="set-tab-appid" placeholder="app_id">
+      <input type="password" id="set-tab-secret" placeholder="app_secret">
+      <label>base_token / table_id</label>
+      <input type="text" id="set-tab-base" placeholder="base_token (app token)">
+      <input type="text" id="set-tab-table" placeholder="table_id">
+    </div>
+    <div class="card">
+      <h3>转写文字纠错（LLM）</h3>
+      <label>Base URL</label>
+      <input type="text" id="set-llm-url" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1">
+      <label>模型</label>
+      <input type="text" id="set-llm-model" placeholder="qwen-max / Qwen3-VL-8B-FP8">
+      <label>API Key</label>
+      <input type="password" id="set-llm-key" placeholder="api_key">
+      <div class="hint">转写后用该模型纠正同音字/农业术语错误并补标点。留空则不纠错。</div>
+    </div>
+  </div>
+  <div style="margin-top:8px;text-align:right;">
+    <button class="btn" onclick="saveSettings()">保存全部配置</button>
+    <span class="msg" id="set-msg"></span>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// ------- tab 切换 -------
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  $('page-' + t.dataset.page).classList.add('active');
+  if (t.dataset.page === 'settings') loadSettings();
+  if (t.dataset.page === 'history') refreshHistory();
+});
+
+// ------- 直接下载 -------
+async function downloadSingle() {
+  const url = $('dl-url').value.trim();
+  if (!url) { $('dl-msg').className='msg err'; $('dl-msg').textContent='请粘贴作品链接'; return; }
+  $('dl-msg').className='msg'; $('dl-msg').textContent='提交中...';
+  try {
+    const r = await fetch('/api/download_single', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url}) });
+    const d = await r.json();
+    if (!d.ok) { $('dl-msg').className='msg err'; $('dl-msg').textContent = d.msg; return; }
+    $('dl-msg').className='msg ok'; $('dl-msg').textContent = '✓ 任务已提交: ' + d.task_id;
+    $('dl-url').value = '';
+    refreshTasks();
+  } catch(e){ $('dl-msg').className='msg err'; $('dl-msg').textContent='请求失败: '+e; }
+}
+
+// ------- 主页批量 -------
+async function createBatch() {
+  const url = $('bt-url').value.trim();
+  if (!url) { $('bt-msg').className='msg err'; $('bt-msg').textContent='请粘贴博主主页链接'; return; }
+  $('bt-msg').className='msg'; $('bt-msg').textContent='提交中...';
+  try {
+    const r = await fetch('/api/task', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url, order:$('bt-order').value}) });
+    const d = await r.json();
+    if (!d.ok) { $('bt-msg').className='msg err'; $('bt-msg').textContent = d.msg; return; }
+    $('bt-msg').className='msg ok'; $('bt-msg').textContent = '✓ 批量任务已提交: ' + d.task_id;
+    refreshTasks();
+  } catch(e){ $('bt-msg').className='msg err'; $('bt-msg').textContent='请求失败: '+e; }
+}
+
+// ------- 任务进度 -------
+async function refreshTasks() {
+  try {
+    const r = await fetch('/api/tasks'); const d = await r.json();
+    $('dl-task').innerHTML = renderTasks(d.tasks, 'single');
+    $('bt-task').innerHTML = renderTasks(d.tasks, 'batch');
+  } catch(e) {}
+}
+function renderTasks(tasks, type) {
+  const t = tasks.filter(x => x.task_type === type);
+  if (!t.length) return '<div class="empty">暂无任务</div>';
+  return t.map(taskCard).join('');
+}
+function taskCard(t) {
+  const vids = t.videos || [];
+  const done = vids.filter(v => v.transcript_status === 'done').length;
+  const downloaded = vids.filter(v => v.download_status === 'downloaded').length;
+  const failed = vids.filter(v => v.download_status === 'failed' || v.transcript_status === 'failed').length;
+  const stMap = {pending:'待处理', running:'运行中', done:'已完成', failed:'失败'};
+  const stCls = {done:'ok', running:'run', failed:'fail', pending:'warn'};
+  const pct = vids.length ? Math.round(done / vids.length * 100) : 0;
+  const body = vids.slice(0,50).map(v => {
+    const dsTag = tag(v.download_status), tsTag = tag(v.transcript_status);
+    const link = v.local_url ? `<a class="vlink" href="${esc(v.local_url)}" target="_blank">▶ 视频</a>` : '';
+    const alink = v.audio_url ? `<a class="vlink" href="${esc(v.audio_url)}" target="_blank">🎵 音频</a>` : '';
+    return `<div class="vitem">
+      <div class="t">${esc(v.title || v.aweme_id)}</div>
+      <div class="s">${dsTag} ${tsTag} ${link} ${alink}
+        ${v.transcript ? `<button class="btn gray" style="padding:3px 10px;font-size:12px" onclick="toggleTrans(this)">逐字稿</button>
+          <div class="transcript" style="display:none">${esc(v.transcript)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  const nick = t.nickname ? `（${esc(t.nickname)}）` : '';
+  return `<div class="card">
+    <div class="task-head">
+      <h3 style="margin:0">${esc(t.url || t.sec_user_id)}${nick}
+        <span class="tag ${stCls[t.status]||'warn'}">${stMap[t.status]||t.status}</span></h3>
+      <span class="meta">${new Date(t.created_at*1000).toLocaleString()}</span>
+    </div>
+    ${t.error ? `<div style="color:#dc2626;font-size:13px;margin:8px 0">${esc(t.error)}</div>` : ''}
+    <div class="prog"><i style="width:${pct}%"></i></div>
+    <div class="stat" style="margin-bottom:10px">
+      <span>总数 <b>${vids.length}</b></span>
+      <span>已下载 <b>${downloaded}</b></span>
+      <span>转写完成 <b>${done}</b></span>
+      <span>失败 <b>${failed}</b></span>
+    </div>
+    ${body}
+  </div>`;
+}
+function tag(st) {
+  const m = {pending:['warn','待处理'], downloading:['run','下载中'], downloaded:['ok','已下载'],
+    transcribing:['run','转写中'], done:['ok','转写完成'], failed:['fail','失败']};
+  const [c, label] = m[st] || ['warn', st];
+  return `<span class="tag ${c}">${label}</span>`;
+}
+function toggleTrans(btn) { const box = btn.nextElementSibling; box.style.display = box.style.display==='none' ? 'block' : 'none'; }
+
+// ------- 历史查询 -------
+function histQuery() {
+  const qs = new URLSearchParams();
+  if ($('h-status').value) qs.set('status', $('h-status').value);
+  if ($('h-source').value) qs.set('source', $('h-source').value);
+  if ($('h-author').value.trim()) qs.set('author', $('h-author').value.trim());
+  if ($('h-q').value.trim()) qs.set('q', $('h-q').value.trim());
+  if ($('h-dfrom').value) qs.set('date_from', new Date($('h-dfrom').value).getTime());
+  if ($('h-dto').value) qs.set('date_to', new Date($('h-dto').value + 'T23:59:59').getTime());
+  const dur = $('h-dur').value;
+  if (dur === 'lt60') qs.set('max_duration', 60);
+  if (dur === '60to300') { qs.set('min_duration', 60); qs.set('max_duration', 300); }
+  if (dur === 'gt300') qs.set('min_duration', 300);
+  return qs;
+}
+async function refreshHistory() {
+  try {
+    const qs = histQuery();
+    const r = await fetch('/api/videos?' + qs.toString()); const d = await r.json();
+    if (!d.ok) return;
+    const s = d.stats || {};
+    $('h-stats').innerHTML = `命中 <b>${d.total}</b> 条 | 总数 <b>${s.total||0}</b> · 转写完成 <b>${s.done||0}</b> · 失败 <b>${s.failed||0}</b>`;
+    const items = d.items || [];
+    if (!items.length) { $('h-body').innerHTML=''; $('h-empty').style.display='block'; return; }
+    $('h-empty').style.display='none';
+    $('h-body').innerHTML = items.map(v => {
+      const stCls = {done:'ok', running:'run', failed:'fail'};
+      const stTag = `<span class="tag ${stCls[v.status]||'warn'}">${esc(v.status||'')}</span>`;
+      const srcTag = v.source==='single' ? '<span class="tag warn">单链接</span>' : '<span class="tag run">主页</span>';
+      const vlink = v.local_url ? `<a class="vlink" href="${esc(v.local_url)}" target="_blank">▶</a>` : '—';
+      const alink = v.audio_url ? `<a class="vlink" href="${esc(v.audio_url)}" target="_blank">🎵</a>` : '—';
+      const tt = v.transcript ? `<button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="toggleTrans(this)">查看</button>
+        <div class="transcript" style="display:none">${esc(v.transcript)}</div>` : '—';
+      const tm = v.updated_at ? new Date(v.updated_at.replace(' ','T')).toLocaleString() : '';
+      return `<tr>
+        <td class="cell-title">${esc(v.title||v.aweme_id)}</td>
+        <td>${srcTag}</td>
+        <td>${stTag}</td>
+        <td>${vlink}</td><td>${alink}</td><td>${tt}</td><td style="white-space:nowrap;font-size:12px;color:#86909c">${tm}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {}
+}
+function exportHistory() {
+  const qs = histQuery();
+  window.location = '/api/export?' + qs.toString();
+}
+
+// ------- 设置 -------
+async function loadSettings() {
+  try {
+    const d = await (await fetch('/api/settings')).json();
+    $('set-cookie').value = d.douyin?.cookie || '';
+    $('set-engine').value = d.asr?.engine || 'local';
+    $('set-local-url').value = d.asr?.local?.url || '';
+    $('set-xf-appid').value = d.asr?.xfyun?.app_id || '';
+    $('set-xf-key').value = d.asr?.xfyun?.api_key || '';
+    $('set-xf-secret').value = d.asr?.xfyun?.api_secret || '';
+    $('set-fs-appid').value = d.asr?.feishu?.app_id || '';
+    $('set-fs-secret').value = d.asr?.feishu?.app_secret || '';
+    $('set-fs-endpoint').value = d.asr?.feishu?.api_endpoint || '';
+    $('set-tab-appid').value = d.feishu_table?.app_id || '';
+    $('set-tab-secret').value = d.feishu_table?.app_secret || '';
+    $('set-tab-base').value = d.feishu_table?.base_token || '';
+    $('set-tab-table').value = d.feishu_table?.table_id || '';
+    $('set-llm-url').value = d.llm?.base_url || '';
+    $('set-llm-model').value = d.llm?.model || '';
+    $('set-llm-key').value = d.llm?.api_key || '';
+  } catch(e) {}
+}
+async function saveSettings() {
+  const values = {
+    'douyin.cookie': $('set-cookie').value.trim(),
+    'asr.engine': $('set-engine').value,
+    'asr.local.url': $('set-local-url').value.trim(),
+    'asr.xfyun.app_id': $('set-xf-appid').value.trim(),
+    'asr.xfyun.api_key': $('set-xf-key').value.trim(),
+    'asr.xfyun.api_secret': $('set-xf-secret').value.trim(),
+    'asr.feishu.app_id': $('set-fs-appid').value.trim(),
+    'asr.feishu.app_secret': $('set-fs-secret').value.trim(),
+    'asr.feishu.api_endpoint': $('set-fs-endpoint').value.trim(),
+    'feishu_table.app_id': $('set-tab-appid').value.trim(),
+    'feishu_table.app_secret': $('set-tab-secret').value.trim(),
+    'feishu_table.base_token': $('set-tab-base').value.trim(),
+    'feishu_table.table_id': $('set-tab-table').value.trim(),
+    'llm.base_url': $('set-llm-url').value.trim(),
+    'llm.model': $('set-llm-model').value.trim(),
+    'llm.api_key': $('set-llm-key').value.trim(),
+  };
+  const r = await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({values}) });
+  const d = await r.json();
+  $('set-msg').className = 'msg ' + (d.ok ? 'ok' : 'err');
+  $('set-msg').textContent = d.ok ? '✓ 已保存' : d.msg;
+}
+
+function esc(s){ return (s||'').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+setInterval(refreshTasks, 3000);
+refreshTasks();
+</script>
+</body>
+</html>

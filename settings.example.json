@@ -1,0 +1,23 @@
+{
+  "web": { "host": "0.0.0.0", "port": 9009 },
+  "server": { "base_url": "http://192.168.1.5:9009" },
+  "download": { "root": "/opt/douyin-web/data" },
+  "douyin": {
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
+      "Referer": "https://www.douyin.com/"
+    },
+    "proxies": { "http://": null, "https://": null },
+    "timeout": 15,
+    "cookie": "",
+    "max_tasks": 5
+  },
+  "asr": {
+    "engine": "local",
+    "local": { "url": "http://192.168.1.5:8003/v1/audio/transcriptions" },
+    "xfyun": { "app_id": "", "api_key": "", "api_secret": "" },
+    "feishu": { "app_id": "", "app_secret": "", "api_endpoint": "" }
+  },
+  "feishu_table": { "app_id": "", "app_secret": "", "base_token": "", "table_id": "" },
+  "llm": { "provider": "aliyun", "base_url": "", "model": "", "api_key": "" }
+}
