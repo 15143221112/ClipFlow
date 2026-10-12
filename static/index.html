@@ -77,8 +77,8 @@
   textarea.code-ta, input.code-input { font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Code",monospace; font-size:12.5px; line-height:1.6; background:#f2f5fb; color:#1f2733; border-color:#c3cfe6; caret-color:#3370ff; }
   textarea.code-ta:focus, input.code-input:focus { border-color:#3370ff; box-shadow:0 0 0 3px rgba(51,112,255,.12); background:#fff; }
   textarea.code-ta { min-height:84px; }
-  /* 分页容器右对齐 */
-  #h-pager { justify-content:flex-end; }
+  /* 分页容器右对齐 + 手机整齐换行 */
+  #h-pager { justify-content:flex-end; flex-wrap:wrap; gap:8px; align-items:center; }
   #h-pager .pginfo { font-size:13px; color:#4e5969; margin:0 4px; }
   /* 逐字稿弹窗 */
   .modal { display:none; position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:100; align-items:center; justify-content:center; padding:20px; }
@@ -87,7 +87,18 @@
   .modal-head { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #eef0f6; }
   .modal-head b { font-size:15px; color:#1f2329; }
   .modal-body { padding:16px 18px; overflow:auto; white-space:pre-wrap; word-break:break-all; line-height:1.85; font-size:14px; color:#2a3142; }
-  @media(max-width:760px){ .grid2{grid-template-columns:1fr} .row{flex-direction:column;align-items:stretch} }
+  @media(max-width:760px){
+    .grid2{grid-template-columns:1fr}
+    .row{flex-direction:column;align-items:stretch}
+    header{flex-wrap:wrap;padding:12px 14px;gap:10px}
+    header h1{width:100%;justify-content:center}
+    .tabs{width:100%;margin-left:0;justify-content:center;flex-wrap:wrap;gap:4px;padding:4px}
+    .tab{flex:1 1 auto;min-width:0;text-align:center;padding:8px 6px;white-space:nowrap}
+    #h-pager{justify-content:center}
+    #h-pager .pginfo{order:-1;width:100%;text-align:center;margin:4px 0}
+    #h-pager .btn{padding:8px 12px}
+    .field{margin-right:0!important}
+  }
 </style>
 </head>
 <body>
