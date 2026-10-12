@@ -98,6 +98,20 @@
     #h-pager .pginfo{order:-1;width:100%;text-align:center;margin:4px 0}
     #h-pager .btn{padding:8px 12px}
     .field{margin-right:0!important}
+    /* 筛选区：手机 2 列紧凑网格 */
+    .hrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .hrow select,.hrow input{width:100%}
+    .hrow .btn{width:100%;justify-content:center}
+    /* 历史表格手机转卡片 */
+    thead{display:none}
+    #h-body{display:block}
+    #h-body tr{display:block;border:1px solid #eef0f6;border-radius:12px;padding:8px 12px;margin-bottom:10px;background:#fff;box-shadow:0 1px 6px rgba(31,63,143,.05)}
+    #h-body td{display:flex;justify-content:space-between;align-items:flex-start;border:none;padding:5px 0;font-size:12.5px;gap:10px}
+    #h-body td::before{content:attr(data-label);color:#9aa3b5;font-size:12px;font-weight:500;flex:0 0 46px}
+    #h-body td[data-label="标题"]{display:block;font-weight:600;color:#1f2329;border-bottom:1px dashed #eef0f6;padding-bottom:6px;margin-bottom:4px}
+    #h-body td[data-label="标题"]::before{content:none}
+    #h-body td[data-label="操作"]{flex-wrap:wrap}
+    #h-body td[data-label="操作"] .btn{margin:2px 4px 0 0}
   }
 </style>
 </head>
@@ -279,7 +293,9 @@
       <input type="text" id="set-llm-model" placeholder="qwen-max / Qwen3-VL-8B-FP8">
       <label>API Key</label>
       <input type="password" id="set-llm-key" placeholder="api_key">
-      <div class="hint">转写后用该模型纠正同音字/农业术语错误并补标点。留空则不纠错。</div>
+      <label>纠错提示词（可配置，适配任意行业术语；留空用内置默认）</label>
+      <textarea id="set-llm-prompt" class="code-ta" placeholder="例：你是{行业}领域的文字校对专家，请改正同音字/错别字为正确专业术语，并补充标点断句，只输出改正后文本…"></textarea>
+      <div class="hint">转写后用该模型纠正同音字/术语错误并补标点。提示词可自定义，不同行业填各自术语即可通用。留空则用内置默认（水稻农业）。</div>
     </div>
   </div>
   <div style="margin-top:8px;text-align:right;">
@@ -529,11 +545,11 @@ async function refreshHistory() {
         <button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="reworkVideo('${v.aweme_id}','download')" title="重新下载视频并转写（需 cookie）">重下载</button>
         <button class="btn gray" style="padding:2px 8px;font-size:12px;color:#fff;background:#f53f3f" onclick="delVideo('${v.aweme_id}')" title="删除记录及本地视频/音频文件">删除</button>`;
       return `<tr>
-        <td class="cell-title">${esc(v.title||v.aweme_id)}</td>
-        <td>${srcTag}</td>
-        <td>${stTag}</td>
-        <td>${vlink}</td><td>${alink}</td><td>${tt}</td><td style="white-space:nowrap;font-size:12px;color:#86909c">${tm}</td>
-        <td style="white-space:nowrap">${ops}</td>
+        <td class="cell-title" data-label="标题">${esc(v.title||v.aweme_id)}</td>
+        <td data-label="来源">${srcTag}</td>
+        <td data-label="状态">${stTag}</td>
+        <td data-label="视频">${vlink}</td><td data-label="音频">${alink}</td><td data-label="逐字稿">${tt}</td><td data-label="发布时间" style="white-space:nowrap;font-size:12px;color:#86909c">${tm}</td>
+        <td data-label="操作" style="white-space:nowrap">${ops}</td>
       </tr>`;
     }).join('');
   } catch(e) {}
@@ -583,6 +599,7 @@ async function loadSettings() {
     $('set-llm-url').value = d.llm?.base_url || '';
     $('set-llm-model').value = d.llm?.model || '';
     $('set-llm-key').value = d.llm?.api_key || '';
+    $('set-llm-prompt').value = d.llm?.prompt || '';
   } catch(e) {}
 }
 async function saveSettings() {
@@ -603,6 +620,7 @@ async function saveSettings() {
     'llm.base_url': $('set-llm-url').value.trim(),
     'llm.model': $('set-llm-model').value.trim(),
     'llm.api_key': $('set-llm-key').value.trim(),
+    'llm.prompt': $('set-llm-prompt').value.trim(),
   };
   const r = await fetch('/api/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({values}) });
   const d = await r.json();

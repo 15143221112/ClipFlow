@@ -167,6 +167,7 @@ async def _call_llm_punctuate(chunk: str, llm: dict) -> str:
     base_url = llm.get("base_url", "http://192.168.1.5:8002/v1")
     model = llm.get("model", "Qwen3-VL-8B-FP8")
     api_key = llm.get("api_key") or ""
+    prompt = (llm.get("prompt") or _PUNCT_PROMPT).rstrip() + "\n\n"  # 可配置，默认内置
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     async with httpx.AsyncClient(timeout=300) as client:
         resp = await client.post(
@@ -174,7 +175,7 @@ async def _call_llm_punctuate(chunk: str, llm: dict) -> str:
             headers=headers,
             json={
                 "model": model,
-                "messages": [{"role": "user", "content": _PUNCT_PROMPT + chunk}],
+                "messages": [{"role": "user", "content": prompt + chunk}],
                 "temperature": 0.2,
             },
         )
