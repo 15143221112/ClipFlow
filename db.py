@@ -140,7 +140,7 @@ def list_videos(limit=200, offset=0, status=None, source=None, q=None, author=No
         conds.append("duration<=?"); args.append(float(max_duration))
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
     total = c.execute(f"SELECT COUNT(*) FROM videos{where}", args).fetchone()[0]
-    rows = c.execute(f"SELECT * FROM videos{where} ORDER BY id DESC LIMIT ? OFFSET ?",
+    rows = c.execute(f"SELECT * FROM videos{where} ORDER BY publish_time DESC, id DESC LIMIT ? OFFSET ?",
                      args + [limit, offset]).fetchall()
     c.close()
     return [dict(r) for r in rows], total

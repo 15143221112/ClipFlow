@@ -114,7 +114,7 @@
   #h-cards{display:none}
   .mcard{border:1px solid #eef0f6;border-radius:12px;padding:8px 12px;margin-bottom:10px;background:#fff;box-shadow:0 1px 6px rgba(31,63,143,.05)}
   .mcard .mtitle{font-weight:600;color:#1f2329;border-bottom:1px dashed #eef0f6;padding-bottom:6px;margin-bottom:4px;font-size:13px}
-  .mcard .mrow{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:4px 0;font-size:12px}
+  .mcard .mrow{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 0;font-size:12px}
   .mcard .mrow .lbl{color:#9aa3b5;font-size:11px;font-weight:500;flex:0 0 auto}
   .mcard .mrow .sp{flex:1 1 auto}
   .mcard .mrow.media{justify-content:space-between}
@@ -224,7 +224,7 @@
     <div class="stat" id="h-stats" style="margin-bottom:12px"></div>
     <div id="hist-table-wrap" style="overflow-x:auto">
       <table>
-        <thead><tr><th>标题</th><th>来源</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>发布时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>标题</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>发布时间</th><th>操作</th></tr></thead>
         <tbody id="h-body"></tbody>
       </table>
     </div>
@@ -559,14 +559,13 @@ async function refreshHistory() {
       if (isM) {
         return `<div class="mcard">
           <div class="mtitle">${title}</div>
-          <div class="mrow"><span class="lbl">来源</span>${srcTag}<span class="sp"></span><span class="lbl">发布时间</span><span>${tm}</span></div>
+          <div class="mrow"><span class="lbl">发布时间</span><span>${tm}</span><span class="sp"></span><span class="lbl">状态</span>${stTag}</div>
           <div class="mrow media"><span class="lbl">视频</span>${vlink}<span class="lbl">音频</span>${alink}<span class="lbl">逐字稿</span>${tt}</div>
-          <div class="mrow"><span class="lbl">状态</span>${stTag}<span class="sp"></span><span class="ops">${ops}</span></div>
+          <div class="mrow"><span class="lbl">操作</span><span class="ops">${ops}</span></div>
         </div>`;
       }
       return `<tr>
         <td class="cell-title">${title}</td>
-        <td>${srcTag}</td>
         <td>${stTag}</td>
         <td>${vlink}</td><td>${alink}</td><td>${tt}</td><td style="white-space:nowrap;font-size:12px;color:#86909c">${tm}</td>
         <td style="white-space:nowrap">${ops}</td>
