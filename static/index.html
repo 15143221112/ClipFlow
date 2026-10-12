@@ -240,7 +240,7 @@
       <input type="text" id="h-goto" style="width:56px" placeholder="页">
       <button class="btn gray" onclick="gotoHistPage()">GO</button>
       <span style="font-size:13px;color:#86909c;margin-left:8px">每页</span>
-      <select id="h-pagesize" onchange="hPage=1;refreshHistory()" style="width:80px">
+      <select id="h-pagesize" onchange="hPageSize=parseInt(this.value,10)||20;hPage=1;refreshHistory()" style="width:80px">
         <option value="20" selected>20</option>
         <option value="50">50</option>
         <option value="100">100</option>
