@@ -17,6 +17,7 @@ import config as cfg
 import db
 import f2_worker
 import worker
+import engine_ytdlp
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = cfg.get_section("download", "root") or os.path.join(BASE_DIR, "data")
@@ -52,6 +53,36 @@ def _validate_douyin_url(url: str) -> bool:
     return host == "douyin.com" or host.endswith(".douyin.com")
 
 
+_PLATFORM_DOMAINS = {
+    "douyin": ("douyin.com",),
+    "tiktok": ("tiktok.com",),
+    "twitter": ("x.com", "twitter.com"),
+    "weibo": ("weibo.com", "weibo.cn"),
+}
+
+
+def _validate_platform_url(platform: str, url: str) -> bool:
+    """按平台校验链接；ytdlp 用引擎自身的宽松 SSRF 校验。"""
+    if platform == "ytdlp":
+        return engine_ytdlp._safe_url(url) and engine_ytdlp._public_host((urlparse(url).hostname or "").lower())
+    try:
+        p = urlparse(url.strip())
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = (p.hostname or "").lower()
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    domains = _PLATFORM_DOMAINS.get(platform, ())
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
 # ---------------- 请求模型
 class TaskReq(BaseModel):
     url: str
@@ -62,6 +93,8 @@ class TaskReq(BaseModel):
 class SingleReq(BaseModel):
     url: str
     cookie: str = ""
+    engine: str = "f2"          # f2 / ytdlp
+    platform: str = "douyin"    # f2: douyin/tiktok/twitter/weibo；ytdlp: any
 
 
 class SettingReq(BaseModel):
@@ -104,21 +137,29 @@ async def create_task(req: TaskReq):
 
 @app.post("/api/download_single")
 async def download_single(req: SingleReq):
-    """单链接下载：输入单个作品链接 → 入库(single) → 下载转写。"""
+    """单链接下载：按引擎/平台分发。
+    - engine=f2 + platform=douyin/tiktok/twitter/weibo：作品 ID 下载
+    - engine=ytdlp：任意公开站 URL 下载（YouTube/B站 等）"""
     url = req.url.strip()
-    if not _validate_douyin_url(url):
-        return JSONResponse({"ok": False, "msg": "链接已被拦截：仅支持 douyin.com 域名，拒绝非抖音/IP/恶意链接"}, status_code=400)
-    if req.cookie.strip():                       # 单链接页填写的 cookie 优先，回写配置
-        cfg.set_value("douyin.cookie", req.cookie.strip())
-    aweme_id = f2_worker.resolve_aweme_id(url)
-    if not aweme_id:
-        return JSONResponse({"ok": False, "msg": "无法从链接解析作品ID（需 /video/xxx 或含数字ID）"}, status_code=400)
-    cookie = cfg.get_section("douyin", "cookie") or ""
-    if not cookie:
-        return JSONResponse({"ok": False, "msg": "请提供抖音 cookie（单链接页填写或设置页录入）"}, status_code=400)
+    engine = (req.engine or "f2").strip().lower()
+    platform = (req.platform or "douyin").strip().lower()
+    if engine not in ("f2", "ytdlp"):
+        return JSONResponse({"ok": False, "msg": "engine 仅支持 f2 / ytdlp"}, status_code=400)
+    if engine == "f2" and platform not in f2_worker.SUPPORTED_PLATFORMS:
+        return JSONResponse({"ok": False, "msg": f"F2 平台仅支持 {f2_worker.SUPPORTED_PLATFORMS}"}, status_code=400)
+    if not _validate_platform_url("ytdlp" if engine == "ytdlp" else platform, url):
+        return JSONResponse({"ok": False, "msg": f"链接已被拦截：平台[{platform}] 仅允许合法公开域名，拒绝 IP/内网/恶意链接"}, status_code=400)
+    if req.cookie.strip():                       # 页面填写的 cookie 优先，回写对应平台配置
+        cfg.set_value(f"{platform}.cookie", req.cookie.strip())
     tid = worker.manager.new_task(url, "", task_type="single")
-    asyncio.create_task(worker.process_single(tid, aweme_id))
-    return {"ok": True, "task_id": tid}
+    if engine == "ytdlp":
+        asyncio.create_task(worker.process_single(tid, url, platform="", engine="ytdlp"))
+        return {"ok": True, "task_id": tid, "engine": "ytdlp"}
+    obj_id = f2_worker.resolve_id_platform(platform, url)
+    if not obj_id:
+        return JSONResponse({"ok": False, "msg": f"无法从链接解析 {platform} 作品ID"}, status_code=400)
+    asyncio.create_task(worker.process_single(tid, obj_id, platform=platform, engine="f2"))
+    return {"ok": True, "task_id": tid, "engine": "f2", "platform": platform}
 
 
 @app.post("/api/reprocess")

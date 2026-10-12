@@ -16,6 +16,7 @@ import uuid
 import config as cfg
 import db
 import f2_worker
+import engine_ytdlp
 from asr_client import transcribe
 from lark_client import LarkTableClient
 
@@ -150,11 +151,14 @@ def _record_for(meta, source):
 async def _process_one(meta, task, user_path, lark, engine):
     """单条作品完整流程：下载 → 提取音频 → 转写(纠错) → 写飞书 → 更新库。"""
     aweme = str(meta.get("aweme_id") or "")
-    # 下载
+    # 下载（按引擎分发：f2 多平台 / yt-dlp 通用）
     _set_meta(task, meta, download_status="downloading")
     path = ""
     try:
-        path = await f2_worker.download_one(meta, user_path)
+        if meta.get("_engine") == "ytdlp":
+            path = await asyncio.to_thread(engine_ytdlp.download, meta.get("video_url") or "", user_path)
+        else:
+            path = await f2_worker.download_one_platform(meta.get("_platform", "douyin"), meta, user_path)
     except Exception as e:
         path = ""
         _set_meta(task, meta, download_status="failed", status="失败")
@@ -262,8 +266,10 @@ async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order"):
         task["error"] = str(e)
 
 
-async def process_single(task_id: str, aweme_id: str):
-    """单链接下载：获取单条元信息 → 入库(single) → 下载 → 转写 → 写飞书 → 更新库。"""
+async def process_single(task_id: str, target: str, platform: str = "douyin", engine: str = "f2"):
+    """单链接下载：获取单条元信息 → 入库(single) → 下载 → 转写 → 写飞书 → 更新库。
+    - engine=f2：target 为作品 ID（douyin/tiktok/weibo/twitter）
+    - engine=ytdlp：target 为完整 URL（YouTube/B站等 1500+ 站点）"""
     task = manager.get(task_id)
     if not task:
         return
@@ -276,10 +282,13 @@ async def process_single(task_id: str, aweme_id: str):
             except Exception as e:
                 task["error"] = f"建字段警告(跳过): {e}"
 
-        meta = await f2_worker.fetch_single_meta(aweme_id)
+        if engine == "ytdlp":
+            meta = await asyncio.to_thread(engine_ytdlp.fetch_meta, target)
+        else:
+            meta = await f2_worker.fetch_single_meta_platform(platform, target)
         if not meta or not meta.get("aweme_id"):
             task["status"] = "failed"
-            task["error"] = f"无法获取作品信息（aweme_id={aweme_id}），请检查链接或 cookie"
+            task["error"] = f"无法获取作品信息（{platform}/{target[:40]}），请检查链接或 cookie"
             return
         task["nickname"] = meta.get("author_nickname", "")
         # 入库 source=single
@@ -289,8 +298,8 @@ async def process_single(task_id: str, aweme_id: str):
 
         user_path = os.path.join(ROOT, task_id)
         os.makedirs(user_path, exist_ok=True)
-        engine = cfg.get_section("asr", "engine") or "local"
-        await _process_one(meta, task, user_path, lark, engine)
+        asr_engine = cfg.get_section("asr", "engine") or "local"
+        await _process_one(meta, task, user_path, lark, asr_engine)
         task["status"] = "done"
     except Exception as e:
         task["status"] = "failed"

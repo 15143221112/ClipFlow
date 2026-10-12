@@ -12,13 +12,14 @@ f2 集成：采集博主全部作品元信息 + 逐条下载 mp4。
 import asyncio
 import os
 import re
+import importlib
 from datetime import datetime
 
 import config as cfg
 
 
-def build_kwargs() -> dict:
-    c = cfg.get_section("douyin")
+def build_kwargs(platform: str = "douyin") -> dict:
+    c = cfg.get_section(platform) or {}
     return {
         "headers": c.get("headers"),
         "proxies": c.get("proxies"),
@@ -27,7 +28,129 @@ def build_kwargs() -> dict:
         "mode": "post",
         "max_tasks": c.get("max_tasks", 5),
         "folderize": False,
+        "naming": "{create}_{desc}",
     }
+
+
+# 各平台 handler / downloader 映射（f2 v0.0.1.7 实测类名）
+PLATFORM_MODULES = {
+    "douyin":  ("f2.apps.douyin.handler",  "DouyinHandler",  "fetch_one_video", "f2.apps.douyin.dl",  "DouyinDownloader"),
+    "tiktok":  ("f2.apps.tiktok.handler",  "TiktokHandler",  "fetch_one_video", "f2.apps.tiktok.dl",  "TiktokDownloader"),
+    "twitter": ("f2.apps.twitter.handler", "TwitterHandler", "fetch_one_tweet", "f2.apps.twitter.dl", "TwitterDownloader"),
+    "weibo":   ("f2.apps.weibo.handler",   "WeiboHandler",   "fetch_one_weibo", "f2.apps.weibo.dl",   "WeiboDownloader"),
+}
+SUPPORTED_PLATFORMS = list(PLATFORM_MODULES.keys())
+
+
+def resolve_id_platform(platform: str, url_or_text: str):
+    """按平台从 URL/文本提取作品 ID。"""
+    u = url_or_text or ""
+    if platform in ("douyin", "tiktok"):
+        m = re.search(r"/(?:video|item|note|post)/(\d+)", u)
+        if m:
+            return m.group(1)
+        m = re.search(r"(\d{15,20})", u)
+        return m.group(1) if m else None
+    if platform == "twitter":
+        m = re.search(r"/status/(\d+)", u)
+        return m.group(1) if m else None
+    if platform == "weibo":
+        m = re.search(r"/(?:detail|status|show)/([A-Za-z0-9_]+)", u)
+        if m:
+            return m.group(1)
+        m = re.search(r"weibo\.com/\d+/([A-Za-z0-9_]+)", u)
+        return m.group(1) if m else None
+    return None
+
+
+def _pick(d, *keys, default=""):
+    for k in keys:
+        v = d.get(k)
+        if v not in (None, ""):
+            return v
+    return default
+
+
+def extract_meta_platform(platform: str, d: dict, obj_id=None) -> dict:
+    """把各平台 fetch 到的 dict 转成统一 meta 结构（容错取字段）。
+    下载时使用 meta['_raw'] 原样交给各平台 Downloader.handler_download。"""
+    d = d or {}
+    author = d.get("author") or {}
+    if platform == "twitter":
+        aweme = str(_pick(d, "tweet_id", "id_str", "id", default=obj_id or ""))
+        title = _pick(d, "tweet_desc", "full_text", "text", "desc", "tweet_desc_raw")
+        pub = _parse_create_time(_pick(d, "tweet_created_at", "created_at", "timestamp"))
+        nick = _pick(d, "nickname", "screen_name", "name", default="")
+        dur = _num(_pick(d, "tweet_duration", "duration", default=0))
+        video_url = f"https://x.com/i/status/{aweme}"
+    elif platform == "weibo":
+        aweme = str(_pick(d, "weibo_id", "id", "mid", default=obj_id or ""))
+        title = _pick(d, "weibo_desc", "text_raw", "text", "desc", "weibo_desc_raw")
+        pub = _parse_create_time(_pick(d, "weibo_created_at", "created_at", "create_time"))
+        nick = _pick(d, "nickname_raw", "screen_name", "nickname", "username", default="")
+        dur = _num(_pick(d, "duration", "weibo_duration", default=0))
+        video_url = f"https://weibo.com/detail/{aweme}"
+    else:  # douyin / tiktok
+        aweme = str(_pick(d, "aweme_id", "video_id", default=obj_id or ""))
+        title = _pick(d, "desc", "desc_raw", "caption")
+        pub = _parse_create_time(_pick(d, "create_time", "created_at"))
+        nick = author.get("nickname") or _pick(d, "nickname_raw", "nickname", default="")
+        dur = _num((d.get("video") or {}).get("duration")) or (_num(d.get("video_duration")) // 1000)
+        video_url = f"https://www.douyin.com/video/{aweme}"
+    meta = {
+        "aweme_id": aweme,
+        "title": str(title or aweme),
+        "desc": str(title or ""),
+        "video_play_addr": _pick(d, "video_play_addr", "play_addr", "url", "video_url", default=""),
+        "publish_time": pub,
+        "like_count": _num(d.get("digg_count") or (d.get("statistics") or {}).get("digg_count")),
+        "comment_count": _num(d.get("comment_count") or (d.get("statistics") or {}).get("comment_count")),
+        "share_count": 0,
+        "collect_count": 0,
+        "duration": dur,
+        "author_nickname": nick,
+        "sec_user_id": author.get("sec_user_id") or d.get("sec_user_id") or "",
+        "video_url": video_url,
+        "_raw": d,
+        "_platform": platform,
+        "_engine": "f2",
+    }
+    return meta
+
+
+async def fetch_single_meta_platform(platform: str, obj_id: str):
+    """按平台获取单条元信息（F2 handler）。"""
+    if platform not in PLATFORM_MODULES:
+        return None
+    mod, cls, method, *_ = PLATFORM_MODULES[platform]
+    Handler = getattr(importlib.import_module(mod), cls)
+    handler = Handler(build_kwargs(platform))
+    try:
+        data = await getattr(handler, method)(obj_id)
+    except Exception:
+        return None
+    d = None
+    if hasattr(data, "_to_dict"):
+        d = data._to_dict()
+    elif isinstance(data, dict):
+        d = data
+    if not d:
+        return None
+    return extract_meta_platform(platform, d, obj_id)
+
+
+async def download_one_platform(platform: str, meta: dict, user_path: str) -> str:
+    """按平台下载单条（F2 Downloader），返回本地 mp4 路径。"""
+    if platform not in PLATFORM_MODULES:
+        return ""
+    _m, _c, _method, dlmod, dlcls = PLATFORM_MODULES[platform]
+    Downloader = getattr(importlib.import_module(dlmod), dlcls)
+    kwargs = build_kwargs(platform)
+    dl = Downloader(kwargs)
+    before = _newest_mp4(user_path)
+    await dl.handler_download(kwargs, meta["_raw"], user_path)
+    await dl.execute_tasks()
+    return _locate_new_mp4(user_path, before)
 
 
 def resolve_sec_user_id(url_or_text: str):

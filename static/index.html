@@ -72,9 +72,9 @@
   .row > input { flex:1; width:auto; min-width:0; }
   .row > button { flex:0 0 auto; }
   textarea.url-ta { min-height:76px; resize:vertical; }
-  /* JSON 代码风格文本框 */
-  textarea.code-ta, input.code-input { font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Code",monospace; font-size:12.5px; line-height:1.6; background:#0f1420; color:#e6edf7; border-color:#2a3550; caret-color:#7cb8ff; }
-  textarea.code-ta:focus, input.code-input:focus { border-color:#4f8bff; box-shadow:0 0 0 3px rgba(79,139,255,.18); background:#141a2b; }
+  /* JSON 代码风格文本框（浅色） */
+  textarea.code-ta, input.code-input { font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Code",monospace; font-size:12.5px; line-height:1.6; background:#f2f5fb; color:#1f2733; border-color:#c3cfe6; caret-color:#3370ff; }
+  textarea.code-ta:focus, input.code-input:focus { border-color:#3370ff; box-shadow:0 0 0 3px rgba(51,112,255,.12); background:#fff; }
   textarea.code-ta { min-height:84px; }
   /* 分页容器右对齐 */
   #h-pager { justify-content:flex-end; }
@@ -104,12 +104,25 @@
 <div class="page active" id="page-dl">
   <div class="card">
     <h3>单条链接直接下载</h3>
-    <label>作品链接（https://www.douyin.com/video/xxx 或分享链接）</label>
+    <div class="row">
+      <div class="field" style="flex:1;margin-right:12px;">
+        <label>下载引擎</label>
+        <select id="dl-engine" onchange="dlEngineChanged()">
+          <option value="f2" selected>F2（抖音 / TikTok / 微博 / Twitter）</option>
+          <option value="ytdlp">yt-dlp（YouTube / B站 / 等 1500+ 站点）</option>
+        </select>
+      </div>
+      <div class="field" style="flex:1;">
+        <label>平台</label>
+        <select id="dl-platform"></select>
+      </div>
+    </div>
+    <label>作品链接（按所选平台粘贴对应链接）</label>
     <div class="row">
       <input type="text" id="dl-url" class="code-input" placeholder="粘贴单个作品链接">
       <button class="btn" onclick="downloadSingle()">下载并转写</button>
     </div>
-    <div class="hint">作品信息会自动入库（历史查询可看），随后下载 mp4 → 提取音频 → 转写（带术语纠错）→ 写入飞书。cookie 过期不影响已入库链接的重新处理。</div>
+    <div class="hint">F2 引擎按平台解析作品 ID 下载；yt-dlp 引擎自动识别任意公开站点（YouTube/B站/TikTok 等）并下载。链接均做安全校验（拒绝 IP/内网/恶意链接）。cookie 过期不影响已入库链接的重新处理。</div>
     <div class="msg" id="dl-msg"></div>
   </div>
   <div class="card">
@@ -124,9 +137,6 @@
     <h3>博主主页批量采集下载</h3>
     <label>博主主页链接（可粘贴多条，每行一条）</label>
     <textarea id="bt-url" class="url-ta code-ta" placeholder="https://www.douyin.com/user/xxxxx&#10;https://www.douyin.com/user/yyyyy"></textarea>
-    <div class="row" style="margin-top:14px;">
-      <button class="btn" onclick="createBatch()">开始批量任务</button>
-    </div>
     <label>抖音 Cookie（用于采集主页全部作品；会话过期请在此更新，否则无法采集新作品）</label>
     <textarea id="bt-cookie" class="url-ta code-ta" placeholder="粘贴 douyin 登录态 cookie…"></textarea>
     <label>下载顺序</label>
@@ -134,6 +144,9 @@
       <option value="order">按时间顺序（新→旧）</option>
       <option value="random">随机顺序</option>
     </select>
+    <div class="row" style="margin-top:16px;">
+      <button class="btn" onclick="createBatch()">开始批量任务</button>
+    </div>
     <div class="hint">先通过 cookie 采集博主全部作品链接并入库（batch），再按所选顺序逐个下载转写。cookie 过期后，已入库的作品仍可单独重新下载。</div>
     <div class="msg" id="bt-msg"></div>
   </div>
@@ -281,14 +294,45 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => activateTab(t.d
 })();
 
 // ------- 直接下载 -------
+const DL_F2_PLATFORMS = [
+  {v:'douyin',  l:'抖音'},
+  {v:'tiktok',  l:'TikTok'},
+  {v:'twitter', l:'Twitter / X'},
+  {v:'weibo',   l:'微博'},
+];
+const DL_YDLP_PLATFORMS = [
+  {v:'youtube',   l:'YouTube'},
+  {v:'bilibili',  l:'哔哩哔哩 B站'},
+  {v:'tiktok',    l:'TikTok'},
+  {v:'weibo',     l:'微博'},
+  {v:'twitter',   l:'Twitter / X'},
+  {v:'instagram', l:'Instagram'},
+  {v:'generic',   l:'其他站点（通用）'},
+];
+function dlEngineChanged() {
+  const e = $('dl-engine').value;
+  const list = e === 'ytdlp' ? DL_YDLP_PLATFORMS : DL_F2_PLATFORMS;
+  const sel = $('dl-platform');
+  sel.innerHTML = '';
+  list.forEach(o => {
+    const op = document.createElement('option');
+    op.value = o.v; op.textContent = o.l;
+    sel.appendChild(op);
+  });
+  sel.value = e === 'ytdlp' ? 'generic' : 'douyin';
+}
+(async function initDlPlatform(){ dlEngineChanged(); })();
+
 async function downloadSingle() {
   const url = $('dl-url').value.trim();
+  const engine = $('dl-engine').value;
+  const platform = $('dl-platform').value;
   if (!url) { $('dl-msg').className='msg err'; $('dl-msg').textContent='请粘贴作品链接'; return; }
-  const c = urlCheck(url);
-  if (!c.ok) { $('dl-msg').className='msg err'; $('dl-msg').textContent=c.msg; return; }
+  if (!/^https?:\/\//i.test(url)) { $('dl-msg').className='msg err'; $('dl-msg').textContent='仅支持 http/https 链接'; return; }
+  // 平台域名/引擎合法性由后端权威校验（防 SSRF / 恶意链接），前端只做基础检查
   $('dl-msg').className='msg'; $('dl-msg').textContent='提交中...';
   try {
-    const r = await fetch('/api/download_single', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url}) });
+    const r = await fetch('/api/download_single', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url, engine, platform}) });
     const d = await r.json();
     if (!d.ok) { $('dl-msg').className='msg err'; $('dl-msg').textContent = d.msg; return; }
     $('dl-msg').className='msg ok'; $('dl-msg').textContent = '✓ 任务已提交: ' + d.task_id;
