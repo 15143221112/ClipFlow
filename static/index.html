@@ -90,6 +90,7 @@
   @media(max-width:760px){
     .grid2{grid-template-columns:1fr}
     .row{flex-direction:column;align-items:stretch}
+    .stat{font-size:12px;gap:12px}
     header{flex-wrap:wrap;padding:12px 14px;gap:10px}
     header h1{width:100%;justify-content:center}
     .tabs{width:100%;margin-left:0;justify-content:center;flex-wrap:wrap;gap:4px;padding:4px}
@@ -110,15 +111,15 @@
     #h-body td::before{content:attr(data-label);color:#9aa3b5;font-size:12px;font-weight:500;flex:0 0 auto}
     #h-body td[data-label="标题"]{order:0;width:100%;display:block;font-weight:600;color:#1f2329;border-bottom:1px dashed #eef0f6;padding-bottom:6px;margin-bottom:4px}
     #h-body td[data-label="标题"]::before{content:none}
-    #h-body td[data-label="来源"]{order:1;width:50%;padding-right:8px}
-    #h-body td[data-label="发布时间"]{order:2;width:50%;justify-content:flex-start}
+    #h-body td[data-label="来源"]{order:1;flex:0 0 auto;padding-right:12px}
+    #h-body td[data-label="发布时间"]{order:2;flex:1 1 auto;justify-content:flex-start}
     #h-body td[data-label="发布时间"]::before{margin-right:8px}
-    #h-body td[data-label="视频"]{order:3;width:33.33%}
-    #h-body td[data-label="音频"]{order:4;width:33.33%}
-    #h-body td[data-label="逐字稿"]{order:5;width:33.33%}
-    #h-body td[data-label="状态"]{order:6;flex:0 0 auto;width:auto;padding-right:8px}
+    #h-body td[data-label="视频"]{order:3;flex:1 1 0;justify-content:flex-start;gap:6px}
+    #h-body td[data-label="音频"]{order:4;flex:1 1 0;justify-content:flex-start;gap:6px}
+    #h-body td[data-label="逐字稿"]{order:5;flex:1 1 0;justify-content:flex-start;gap:6px}
+    #h-body td[data-label="状态"]{order:6;flex:0 0 auto;width:auto;padding-right:12px}
     #h-body td[data-label="操作"]{order:7;flex:1 1 auto;width:auto;flex-wrap:wrap}
-    #h-body td[data-label="操作"] .btn{margin:2px 4px 0 0;flex:0 0 auto}
+    #h-body td[data-label="操作"] .btn{padding:4px 9px;font-size:11px;margin:2px 3px 0 0;flex:0 0 auto}
   }
 </style>
 </head>
