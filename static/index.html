@@ -90,7 +90,8 @@
   @media(max-width:760px){
     .grid2{grid-template-columns:1fr}
     .row{flex-direction:column;align-items:stretch}
-    .stat{font-size:11px;gap:10px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden}
+    .stat{font-size:11px;gap:10px;flex-wrap:nowrap;white-space:nowrap;overflow:hidden;align-items:center}
+    .stat b{font-size:12px;vertical-align:middle}
     header{flex-wrap:wrap;padding:12px 14px;gap:10px}
     header h1{width:100%;justify-content:center}
     .tabs{width:100%;margin-left:0;justify-content:center;flex-wrap:wrap;gap:4px;padding:4px}
@@ -103,25 +104,22 @@
     .hrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .hrow select,.hrow input{width:100%}
     .hrow .btn{width:100%;justify-content:center}
-    /* 历史表格手机转卡片（分组 3 行，严格对齐） */
-    thead{display:none}
-    #h-body{display:block}
-    #h-body tr{display:flex;flex-wrap:wrap;border:1px solid #eef0f6;border-radius:12px;padding:8px 12px;margin-bottom:10px;background:#fff;box-shadow:0 1px 6px rgba(31,63,143,.05)}
-    #h-body td{display:flex;align-items:center;justify-content:flex-start;gap:6px;border:none;padding:5px 0;font-size:12px;min-width:0;box-sizing:border-box}
-    #h-body td::before{content:attr(data-label);color:#9aa3b5;font-size:11px;font-weight:500;flex:0 0 auto}
-    #h-body td[data-label="标题"]{order:0;width:100%;display:block;font-weight:600;color:#1f2329;border-bottom:1px dashed #eef0f6;padding-bottom:6px;margin-bottom:4px}
-    #h-body td[data-label="标题"]::before{content:none}
-    #h-body td[data-label="来源"]{order:1;width:50%;padding-right:14px}
-    #h-body td[data-label="发布时间"]{order:2;width:50%;white-space:nowrap}
-    #h-body td[data-label="发布时间"]::before{margin-right:6px}
-    #h-body td[data-label="视频"]{order:3;flex:1 1 0;justify-content:center}
-    #h-body td[data-label="音频"]{order:4;flex:1 1 0;justify-content:center}
-    #h-body td[data-label="逐字稿"]{order:5;flex:1 1 0;justify-content:center}
-    #h-body td[data-label="逐字稿"] button{padding:3px 8px;font-size:11px}
-    #h-body td[data-label="状态"]{order:6;flex:0 0 auto;padding-right:14px}
-    #h-body td[data-label="操作"]{order:7;flex:1 1 auto;flex-wrap:wrap;justify-content:flex-end}
-    #h-body td[data-label="操作"] .btn{padding:4px 8px;font-size:11px;margin:2px 0 0 6px}
+    /* 历史：手机隐藏表格，用 JS 卡片 */
+    #hist-table-wrap{display:none}
+    #h-cards{display:block}
+    /* 分页每页下拉在手机保证可点 */
+    #h-pagesize{min-width:70px}
   }
+  /* 历史手机卡片（JS 生成） */
+  #h-cards{display:none}
+  .mcard{border:1px solid #eef0f6;border-radius:12px;padding:8px 12px;margin-bottom:10px;background:#fff;box-shadow:0 1px 6px rgba(31,63,143,.05)}
+  .mcard .mtitle{font-weight:600;color:#1f2329;border-bottom:1px dashed #eef0f6;padding-bottom:6px;margin-bottom:4px;font-size:13px}
+  .mcard .mrow{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:4px 0;font-size:12px}
+  .mcard .mrow .lbl{color:#9aa3b5;font-size:11px;font-weight:500;flex:0 0 auto}
+  .mcard .mrow .sp{flex:1 1 auto}
+  .mcard .mrow.media{justify-content:space-between}
+  .mcard .mrow .ops{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+  .mcard .mrow .ops .btn{padding:4px 9px;font-size:11px}
 </style>
 </head>
 <body>
@@ -224,12 +222,13 @@
       <button class="btn" onclick="exportHistory()">导出当前结果</button>
     </div>
     <div class="stat" id="h-stats" style="margin-bottom:12px"></div>
-    <div style="overflow-x:auto">
+    <div id="hist-table-wrap" style="overflow-x:auto">
       <table>
         <thead><tr><th>标题</th><th>来源</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>发布时间</th><th>操作</th></tr></thead>
         <tbody id="h-body"></tbody>
       </table>
     </div>
+    <div id="h-cards" style="display:none"></div>
     <div class="empty" id="h-empty" style="display:none">暂无记录</div>
     <div class="hrow" id="h-pager" style="margin-top:12px;align-items:center;display:none">
       <button class="btn gray" onclick="goHistPage('home')">首页</button>
@@ -539,13 +538,16 @@ async function refreshHistory() {
     const items = d.items || [];
     if (!items.length) { $('h-body').innerHTML=''; $('h-empty').style.display='block'; return; }
     $('h-empty').style.display='none';
-    $('h-body').innerHTML = items.map(v => {
+    const isM = window.matchMedia('(max-width:760px)').matches;
+    $('hist-table-wrap').style.display = isM ? 'none' : '';
+    $('h-cards').style.display = isM ? 'block' : 'none';
+    const frag = items.map(v => {
       const stCls = {done:'ok', running:'run', failed:'fail'};
       const stTag = `<span class="tag ${stCls[v.status]||'warn'}">${esc(v.status||'')}</span>`;
       const srcTag = v.source==='single' ? '<span class="tag warn">单链接</span>' : '<span class="tag run">主页</span>';
-      const vlink = v.local_url ? `<a class="vlink" href="${esc(v.local_url)}" target="_blank">▶</a>` : '—';
-      const alink = v.audio_url ? `<a class="vlink" href="${esc(v.audio_url)}" target="_blank">🎵</a>` : '—';
-      const tt = v.transcript ? `<button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="openTranscript(this)" data-tt="${esc(v.transcript)}">查看</button>` : '—';
+      const vlink = v.local_url ? `<a class="vlink" href="${esc(v.local_url)}" target="_blank">▶</a>` : '<span style="color:#c0c6d4">—</span>';
+      const alink = v.audio_url ? `<a class="vlink" href="${esc(v.audio_url)}" target="_blank">🎵</a>` : '<span style="color:#c0c6d4">—</span>';
+      const tt = v.transcript ? `<button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="openTranscript(this)" data-tt="${esc(v.transcript)}">查看</button>` : '<span style="color:#c0c6d4">—</span>';
       // 发布时间（publish_time 毫秒）；缺失时回退到操作时间
       const tm = v.publish_time ? new Date(v.publish_time).toLocaleString()
         : (v.updated_at ? new Date(v.updated_at.replace(' ','T')).toLocaleString() : '');
@@ -553,14 +555,24 @@ async function refreshHistory() {
         <button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="reworkVideo('${v.aweme_id}','transcribe')" title="用本地音频重新转写（无需 cookie）">重转写</button>
         <button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="reworkVideo('${v.aweme_id}','download')" title="重新下载视频并转写（需 cookie）">重下载</button>
         <button class="btn gray" style="padding:2px 8px;font-size:12px;color:#fff;background:#f53f3f" onclick="delVideo('${v.aweme_id}')" title="删除记录及本地视频/音频文件">删除</button>`;
+      const title = esc(v.title||v.aweme_id);
+      if (isM) {
+        return `<div class="mcard">
+          <div class="mtitle">${title}</div>
+          <div class="mrow"><span class="lbl">来源</span>${srcTag}<span class="sp"></span><span class="lbl">发布时间</span><span>${tm}</span></div>
+          <div class="mrow media"><span class="lbl">视频</span>${vlink}<span class="lbl">音频</span>${alink}<span class="lbl">逐字稿</span>${tt}</div>
+          <div class="mrow"><span class="lbl">状态</span>${stTag}<span class="sp"></span><span class="ops">${ops}</span></div>
+        </div>`;
+      }
       return `<tr>
-        <td class="cell-title" data-label="标题">${esc(v.title||v.aweme_id)}</td>
-        <td data-label="来源">${srcTag}</td>
-        <td data-label="状态">${stTag}</td>
-        <td data-label="视频">${vlink}</td><td data-label="音频">${alink}</td><td data-label="逐字稿">${tt}</td><td data-label="发布时间" style="white-space:nowrap;font-size:12px;color:#86909c">${tm}</td>
-        <td data-label="操作" style="white-space:nowrap">${ops}</td>
+        <td class="cell-title">${title}</td>
+        <td>${srcTag}</td>
+        <td>${stTag}</td>
+        <td>${vlink}</td><td>${alink}</td><td>${tt}</td><td style="white-space:nowrap;font-size:12px;color:#86909c">${tm}</td>
+        <td style="white-space:nowrap">${ops}</td>
       </tr>`;
     }).join('');
+    if (isM) $('h-cards').innerHTML = frag; else $('h-body').innerHTML = frag;
   } catch(e) {}
 }
 function exportHistory() {
