@@ -72,6 +72,13 @@
   .row > input { flex:1; width:auto; min-width:0; }
   .row > button { flex:0 0 auto; }
   textarea.url-ta { min-height:76px; resize:vertical; }
+  /* JSON 代码风格文本框 */
+  textarea.code-ta, input.code-input { font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Code",monospace; font-size:12.5px; line-height:1.6; background:#0f1420; color:#e6edf7; border-color:#2a3550; caret-color:#7cb8ff; }
+  textarea.code-ta:focus, input.code-input:focus { border-color:#4f8bff; box-shadow:0 0 0 3px rgba(79,139,255,.18); background:#141a2b; }
+  textarea.code-ta { min-height:84px; }
+  /* 分页容器右对齐 */
+  #h-pager { justify-content:flex-end; }
+  #h-pager .pginfo { font-size:13px; color:#4e5969; margin:0 4px; }
   /* 逐字稿弹窗 */
   .modal { display:none; position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:100; align-items:center; justify-content:center; padding:20px; }
   .modal.show { display:flex; }
@@ -99,7 +106,7 @@
     <h3>单条链接直接下载</h3>
     <label>作品链接（https://www.douyin.com/video/xxx 或分享链接）</label>
     <div class="row">
-      <input type="text" id="dl-url" placeholder="粘贴单个作品链接">
+      <input type="text" id="dl-url" class="code-input" placeholder="粘贴单个作品链接">
       <button class="btn" onclick="downloadSingle()">下载并转写</button>
     </div>
     <div class="hint">作品信息会自动入库（历史查询可看），随后下载 mp4 → 提取音频 → 转写（带术语纠错）→ 写入飞书。cookie 过期不影响已入库链接的重新处理。</div>
@@ -116,17 +123,17 @@
   <div class="card">
     <h3>博主主页批量采集下载</h3>
     <label>博主主页链接（可粘贴多条，每行一条）</label>
-    <textarea id="bt-url" class="url-ta" placeholder="https://www.douyin.com/user/xxxxx&#10;https://www.douyin.com/user/yyyyy"></textarea>
+    <textarea id="bt-url" class="url-ta code-ta" placeholder="https://www.douyin.com/user/xxxxx&#10;https://www.douyin.com/user/yyyyy"></textarea>
+    <div class="row" style="margin-top:14px;">
+      <button class="btn" onclick="createBatch()">开始批量任务</button>
+    </div>
     <label>抖音 Cookie（用于采集主页全部作品；会话过期请在此更新，否则无法采集新作品）</label>
-    <textarea id="bt-cookie" class="url-ta" placeholder="粘贴 douyin 登录态 cookie…"></textarea>
+    <textarea id="bt-cookie" class="url-ta code-ta" placeholder="粘贴 douyin 登录态 cookie…"></textarea>
     <label>下载顺序</label>
     <select id="bt-order">
       <option value="order">按时间顺序（新→旧）</option>
       <option value="random">随机顺序</option>
     </select>
-    <div class="row" style="margin-top:16px;">
-      <button class="btn" onclick="createBatch()">开始批量任务</button>
-    </div>
     <div class="hint">先通过 cookie 采集博主全部作品链接并入库（batch），再按所选顺序逐个下载转写。cookie 过期后，已入库的作品仍可单独重新下载。</div>
     <div class="msg" id="bt-msg"></div>
   </div>
@@ -171,16 +178,21 @@
     <div class="stat" id="h-stats" style="margin-bottom:12px"></div>
     <div style="overflow-x:auto">
       <table>
-        <thead><tr><th>标题</th><th>来源</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>标题</th><th>来源</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>发布时间</th><th>操作</th></tr></thead>
         <tbody id="h-body"></tbody>
       </table>
     </div>
     <div class="empty" id="h-empty" style="display:none">暂无记录</div>
     <div class="hrow" id="h-pager" style="margin-top:12px;align-items:center;display:none">
+      <button class="btn gray" onclick="goHistPage('home')">首页</button>
       <button class="btn gray" onclick="goHistPage(-1)">‹ 上一页</button>
-      <span id="h-pageinfo" style="font-size:13px;color:#4e5969"></span>
+      <span class="pginfo" id="h-pageinfo"></span>
       <button class="btn gray" onclick="goHistPage(1)">下一页 ›</button>
-      <span style="font-size:13px;color:#86909c;margin-left:12px">每页</span>
+      <button class="btn gray" onclick="goHistPage('end')">尾页</button>
+      <span style="font-size:13px;color:#86909c;margin-left:6px">跳至</span>
+      <input type="text" id="h-goto" style="width:56px" placeholder="页">
+      <button class="btn gray" onclick="gotoHistPage()">GO</button>
+      <span style="font-size:13px;color:#86909c;margin-left:8px">每页</span>
       <select id="h-pagesize" onchange="hPage=1;refreshHistory()" style="width:80px">
         <option value="20" selected>20</option>
         <option value="50">50</option>
@@ -416,10 +428,21 @@ function histQuery() {
 }
 function goHistPage(delta) {
   const max = parseInt($('h-pageinfo').dataset.max || '1', 10);
-  const np = hPage + delta;
-  if (np < 1 || np > max) return;
+  let np = hPage;
+  if (delta === 'home') np = 1;
+  else if (delta === 'end') np = max;
+  else np = hPage + delta;
+  np = Math.max(1, Math.min(np, max));
+  if (np === hPage) return;
   hPage = np;
   refreshHistory();
+}
+function gotoHistPage() {
+  const v = parseInt($('h-goto').value, 10);
+  const max = parseInt($('h-pageinfo').dataset.max || '1', 10);
+  if (!v || isNaN(v)) { alert('请输入页码'); return; }
+  let np = Math.max(1, Math.min(v, max));
+  hPage = np; refreshHistory();
 }
 async function refreshHistory() {
   try {
@@ -442,7 +465,9 @@ async function refreshHistory() {
       const vlink = v.local_url ? `<a class="vlink" href="${esc(v.local_url)}" target="_blank">▶</a>` : '—';
       const alink = v.audio_url ? `<a class="vlink" href="${esc(v.audio_url)}" target="_blank">🎵</a>` : '—';
       const tt = v.transcript ? `<button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="openTranscript(this)" data-tt="${esc(v.transcript)}">查看</button>` : '—';
-      const tm = v.updated_at ? new Date(v.updated_at.replace(' ','T')).toLocaleString() : '';
+      // 发布时间（publish_time 毫秒）；缺失时回退到操作时间
+      const tm = v.publish_time ? new Date(v.publish_time).toLocaleString()
+        : (v.updated_at ? new Date(v.updated_at.replace(' ','T')).toLocaleString() : '');
       const ops = `
         <button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="reworkVideo('${v.aweme_id}','transcribe')" title="用本地音频重新转写（无需 cookie）">重转写</button>
         <button class="btn gray" style="padding:2px 8px;font-size:12px" onclick="reworkVideo('${v.aweme_id}','download')" title="重新下载视频并转写（需 cookie）">重下载</button>
