@@ -102,16 +102,23 @@
     .hrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .hrow select,.hrow input{width:100%}
     .hrow .btn{width:100%;justify-content:center}
-    /* 历史表格手机转卡片 */
+    /* 历史表格手机转卡片（分组 3 行：来源+发布时间 / 视频+音频+逐字稿 / 状态+操作） */
     thead{display:none}
     #h-body{display:block}
-    #h-body tr{display:block;border:1px solid #eef0f6;border-radius:12px;padding:8px 12px;margin-bottom:10px;background:#fff;box-shadow:0 1px 6px rgba(31,63,143,.05)}
-    #h-body td{display:flex;justify-content:space-between;align-items:flex-start;border:none;padding:5px 0;font-size:12.5px;gap:10px}
-    #h-body td::before{content:attr(data-label);color:#9aa3b5;font-size:12px;font-weight:500;flex:0 0 46px}
-    #h-body td[data-label="标题"]{display:block;font-weight:600;color:#1f2329;border-bottom:1px dashed #eef0f6;padding-bottom:6px;margin-bottom:4px}
+    #h-body tr{display:flex;flex-wrap:wrap;border:1px solid #eef0f6;border-radius:12px;padding:8px 12px;margin-bottom:10px;background:#fff;box-shadow:0 1px 6px rgba(31,63,143,.05)}
+    #h-body td{display:flex;justify-content:space-between;align-items:center;gap:8px;border:none;padding:5px 0;font-size:12.5px;min-width:0;box-sizing:border-box}
+    #h-body td::before{content:attr(data-label);color:#9aa3b5;font-size:12px;font-weight:500;flex:0 0 auto}
+    #h-body td[data-label="标题"]{order:0;width:100%;display:block;font-weight:600;color:#1f2329;border-bottom:1px dashed #eef0f6;padding-bottom:6px;margin-bottom:4px}
     #h-body td[data-label="标题"]::before{content:none}
-    #h-body td[data-label="操作"]{flex-wrap:wrap}
-    #h-body td[data-label="操作"] .btn{margin:2px 4px 0 0}
+    #h-body td[data-label="来源"]{order:1;width:50%;padding-right:8px}
+    #h-body td[data-label="发布时间"]{order:2;width:50%;justify-content:flex-start}
+    #h-body td[data-label="发布时间"]::before{margin-right:8px}
+    #h-body td[data-label="视频"]{order:3;width:33.33%}
+    #h-body td[data-label="音频"]{order:4;width:33.33%}
+    #h-body td[data-label="逐字稿"]{order:5;width:33.33%}
+    #h-body td[data-label="状态"]{order:6;flex:0 0 auto;width:auto;padding-right:8px}
+    #h-body td[data-label="操作"]{order:7;flex:1 1 auto;width:auto;flex-wrap:wrap}
+    #h-body td[data-label="操作"] .btn{margin:2px 4px 0 0;flex:0 0 auto}
   }
 </style>
 </head>
