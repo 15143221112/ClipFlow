@@ -1,4 +1,4 @@
-# 📥 xh-distiller
+# 📥 ClipFlow
 
 > 抖音博主主页 → 批量采集 → 下载 mp4 → 语音转写（ASR）→ 文本纠错 → 写入飞书多维表
 > 一套带 Web 界面的「抖音视频 → 结构化文本」自动化流水线。
@@ -58,7 +58,7 @@
 
 ```
                         ┌──────────────────────────────────────┐
-   博主主页/单链接       │           xh-distiller (Web)             │
+   博主主页/单链接       │           ClipFlow (Web)                 │
   ────────────────▶    │                                          │
                         │  采集(f2) → 下载(mp4) → ffmpeg提取音频(mp3) │
                         │  双引擎：F2(抖音/TikTok/微博/Twitter)        │
@@ -91,8 +91,8 @@
 
 ```bash
 # 1. 拉取/构建并准备配置
-git clone https://github.com/<you>/douyin-distiller.git
-cd douyin-distiller
+git clone https://github.com/<you>/ClipFlow.git
+cd ClipFlow
 cp settings.example.json settings.json   # 编辑：填入 cookie / 飞书 / LLM 等
 cp .env.example .env
 
@@ -106,8 +106,8 @@ docker compose up -d --build
 ### 方式二：原生 venv + systemd
 
 ```bash
-git clone https://github.com/<you>/douyin-distiller.git
-cd douyin-distiller
+git clone https://github.com/<you>/ClipFlow.git
+cd ClipFlow
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 # 系统需安装 ffmpeg（Ubuntu: sudo apt install ffmpeg）

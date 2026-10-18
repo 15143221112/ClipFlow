@@ -1,4 +1,4 @@
-# 📥 douyin-distiller
+# 📥 ClipFlow
 
 > 도우인 크리에이터 홈 → 일괄 수집 → MP4 다운로드 → 음성 전사(ASR) → 텍스트 보정 → 페이수 Bitable 쓰기.
 > 도우인 영상을 구조화된 텍스트로 바꾸는 웹 기반 자동화 파이프라인.
@@ -16,7 +16,7 @@
 
 ## 빠른 시작
 ```bash
-git clone https://github.com/<you>/douyin-distiller.git && cd douyin-distiller
+git clone https://github.com/<you>/ClipFlow.git && cd ClipFlow
 cp settings.example.json settings.json
 docker compose up -d --build        # 또는: pip install -r requirements.txt && uvicorn app:app --port 9009
 # 브라우저에서 http://<host>:9009

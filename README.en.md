@@ -1,4 +1,4 @@
-# 📥 douyin-distiller
+# 📥 ClipFlow
 
 > Douyin creator homepage → bulk collection → download MP4 → Speech-to-Text (ASR) → text correction → write to Feishu Bitable.
 > A web-driven automated pipeline turning Douyin videos into structured text.
@@ -9,7 +9,7 @@
 
 ## 🖼 UI Preview
 
-![douyin-distiller console](docs/assets/screenshot.png)
+![ClipFlow console](docs/assets/screenshot.png)
 
 ---
 
@@ -48,7 +48,7 @@
 
 ```
                         ┌──────────────────────────────────────┐
-   Homepage/Single link  │         douyin-distiller (Web)        │
+   Homepage/Single link  │         ClipFlow (Web)        │
   ────────────────────▶  │                                        │
                         │  collect(f2) → download(mp4) → ffmpeg   │
                         │   → extract audio(mp3)                  │
@@ -78,8 +78,8 @@
 ### Option 1: Docker (recommended)
 
 ```bash
-git clone https://github.com/<you>/douyin-distiller.git
-cd douyin-distiller
+git clone https://github.com/<you>/ClipFlow.git
+cd ClipFlow
 cp settings.example.json settings.json   # edit: cookie / Feishu / LLM
 cp .env.example .env
 
@@ -91,8 +91,8 @@ docker compose up -d --build
 ### Option 2: Native venv + systemd
 
 ```bash
-git clone https://github.com/<you>/douyin-distiller.git
-cd douyin-distiller
+git clone https://github.com/<you>/ClipFlow.git
+cd ClipFlow
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 # ffmpeg required (Ubuntu: sudo apt install ffmpeg)
@@ -101,11 +101,11 @@ cp settings.example.json settings.json
 uvicorn app:app --host 0.0.0.0 --port 9009
 ```
 
-systemd example (`/etc/systemd/system/douyin-distiller.service`):
+systemd example (`/etc/systemd/system/ClipFlow.service`):
 
 ```ini
 [Unit]
-Description=douyin-distiller
+Description=ClipFlow
 After=network.target
 
 [Service]
@@ -120,7 +120,7 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now douyin-distiller
+sudo systemctl enable --now ClipFlow
 ```
 
 ---

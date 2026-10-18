@@ -1,4 +1,4 @@
-# 📥 douyin-distiller
+# 📥 ClipFlow
 
 > 抖音クリエイターのホーム → 一括収集 → MP4 ダウンロード → 音声文字起こし（ASR）→ テキスト補正 → 飛書 Bitable へ書き込み。
 > 抖音動画を構造化テキストに変える、Web 操作の自動化パイプライン。
@@ -16,7 +16,7 @@
 
 ## クイックスタート
 ```bash
-git clone https://github.com/<you>/douyin-distiller.git && cd douyin-distiller
+git clone https://github.com/<you>/ClipFlow.git && cd ClipFlow
 cp settings.example.json settings.json
 docker compose up -d --build        # または: pip install -r requirements.txt && uvicorn app:app --port 9009
 # ブラウザで http://<host>:9009
