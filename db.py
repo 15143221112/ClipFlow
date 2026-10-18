@@ -116,6 +116,32 @@ def delete_video(aweme_id: str):
     c.close()
 
 
+def delete_videos_batch(aweme_ids: list) -> int:
+    """批量删除多条记录（按 aweme_id）。返回实际删除条数。"""
+    if not aweme_ids:
+        return 0
+    init()
+    c = _conn()
+    ph = ", ".join(["?"] * len(aweme_ids))
+    cur = c.execute(f"DELETE FROM videos WHERE aweme_id IN ({ph})", list(aweme_ids))
+    c.commit()
+    n = cur.rowcount
+    c.close()
+    return n
+
+
+def list_rows_by_aweme(aweme_ids: list) -> list:
+    """按 aweme_id 批量查询记录（用于删除前定位本地文件）。"""
+    if not aweme_ids:
+        return []
+    init()
+    c = _conn()
+    ph = ", ".join(["?"] * len(aweme_ids))
+    rows = c.execute(f"SELECT * FROM videos WHERE aweme_id IN ({ph})", list(aweme_ids)).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
 def list_videos(limit=200, offset=0, status=None, source=None, q=None, author=None,
                 date_from=None, date_to=None, min_duration=None, max_duration=None):
     init()

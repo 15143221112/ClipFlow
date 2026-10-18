@@ -159,6 +159,49 @@ def resolve_sec_user_id(url_or_text: str):
     return m.group(1) if m else None
 
 
+_COLLECT_TAB = {
+    "like": "like", "likes": "like",
+    "favorite": "favorite", "favorites": "favorite",
+    "collect": "favorite", "collection": "favorite",
+    "post": "post", "video": "post", "main": "post",
+}
+
+
+def resolve_collect_type(url_or_text: str) -> str:
+    """从主页链接识别采集类型：post(发布)/like(点赞)/favorite(收藏)。
+    依据 URL 里的 showTab 参数：like=点赞、favorite/collect=收藏、video/main/无=发布。"""
+    u = url_or_text or ""
+    # 优先取 showTab 参数
+    m = re.search(r"showTab=([A-Za-z]+)", u)
+    if m:
+        return _COLLECT_TAB.get(m.group(1).lower(), "post")
+    m = re.search(r"showSubTab=([A-Za-z]+)", u)
+    if m:
+        return _COLLECT_TAB.get(m.group(1).lower(), "post")
+    # user/self 且无 showTab 视为自己的发布
+    if re.search(r"/user/self", u):
+        return "post"
+    return "post"
+
+
+def is_self_url(url_or_text: str) -> bool:
+    """判断是否为「当前登录用户自己」的主页（/user/self）。"""
+    return bool(re.search(r"/user/self(?:\?|$)", url_or_text or ""))
+
+
+async def resolve_self_sec_user_id(url_or_text: str) -> str:
+    """从「自己主页」链接解析真实 sec_user_id。
+    抖音 /user/self 是登录态占位，需用 f2 的 SecUserIdFetcher 带 cookie 请求自己主页，
+    从响应 URL 提取真实 sec_uid（_DOUYIN_URL_PATTERN: user/([^/?]+)）。
+    返回空表示解析失败。"""
+    try:
+        from f2.apps.douyin.utils import SecUserIdFetcher
+        sec = await SecUserIdFetcher.get_sec_user_id(url_or_text, proxies=cfg.get_section("douyin", "proxies"))
+        return sec or ""
+    except Exception:
+        return ""
+
+
 def resolve_aweme_id(url_or_text: str):
     """从单个视频链接/文本提取 aweme_id（纯数字长ID）。"""
     t = url_or_text or ""
@@ -265,6 +308,44 @@ async def collect_user_videos(sec_user_id: str, on_meta=None) -> list:
     metas = []
     # page_counts=20（抖音单页最多约20条），max_counts=None 不限总数 → 翻页直到采完
     async for aweme_list in handler.fetch_user_post_videos(sec_user_id, 0, 0, 20, None):
+        for a in aweme_list._to_list():
+            meta = extract_meta(a)
+            metas.append(meta)
+            if on_meta:
+                on_meta(meta)
+    return metas
+
+
+async def collect_user_like_videos(sec_user_id: str, on_meta=None) -> list:
+    """采集用户「点赞」的全部视频元信息。
+    f2 签名 fetch_user_like_videos(sec_user_id, max_cursor, page_counts, max_counts)。
+    需要登录 cookie（自己的或对方公开点赞列表）。
+    """
+    from f2.apps.douyin.handler import DouyinHandler
+
+    kwargs = build_kwargs()
+    handler = DouyinHandler(kwargs)
+    metas = []
+    async for aweme_list in handler.fetch_user_like_videos(sec_user_id, 0, 20, None):
+        for a in aweme_list._to_list():
+            meta = extract_meta(a)
+            metas.append(meta)
+            if on_meta:
+                on_meta(meta)
+    return metas
+
+
+async def collect_user_collection_videos(on_meta=None) -> list:
+    """采集当前登录用户「收藏」的全部视频元信息。
+    f2 签名 fetch_user_collection_videos(max_cursor, page_counts, max_counts)。
+    收藏接口只用 cookie 识别自己的收藏（无需传 sec_user_id）。
+    """
+    from f2.apps.douyin.handler import DouyinHandler
+
+    kwargs = build_kwargs()
+    handler = DouyinHandler(kwargs)
+    metas = []
+    async for aweme_list in handler.fetch_user_collection_videos(0, 20, None):
         for a in aweme_list._to_list():
             meta = extract_meta(a)
             metas.append(meta)

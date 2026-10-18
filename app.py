@@ -118,21 +118,34 @@ async def index():
 # ---------------- 任务
 @app.post("/api/task")
 async def create_task(req: TaskReq):
-    """主页批量：采集全部作品链接入库 → 顺序/随机逐个下载转写。"""
+    """主页批量：采集全部作品链接入库 → 顺序/随机逐个下载转写。
+    支持三类链接（自动识别 showTab）：
+      - 博主主页          https://www.douyin.com/user/xxx
+      - 自己主页/点赞     https://www.douyin.com/user/self?showTab=like  （需登录 cookie）
+      - 自己主页/收藏     https://www.douyin.com/user/self?showTab=favorite （需登录 cookie）
+    """
     url = req.url.strip()
     if not _validate_douyin_url(url):
         return JSONResponse({"ok": False, "msg": "链接已被拦截：仅支持 douyin.com 域名，拒绝非抖音/IP/恶意链接"}, status_code=400)
     if req.cookie.strip():                       # 批量页填写的 cookie 优先，回写配置
         cfg.set_value("douyin.cookie", req.cookie.strip())
-    sec_user_id = f2_worker.resolve_sec_user_id(url)
-    if not sec_user_id:
-        return JSONResponse({"ok": False, "msg": "无法从链接解析 sec_user_id（需 /user/xxx 格式）"}, status_code=400)
     cookie = cfg.get_section("douyin", "cookie") or ""
     if not cookie:
         return JSONResponse({"ok": False, "msg": "请提供抖音 cookie（批量页填写或设置页录入）"}, status_code=400)
+
+    collect_type = f2_worker.resolve_collect_type(url)
+    is_self = f2_worker.is_self_url(url)
+    sec_user_id = f2_worker.resolve_sec_user_id(url)
+    if is_self or not sec_user_id:
+        # user/self 是登录态占位，用 f2 SecUserIdFetcher 带 cookie 解析真实 sec_uid
+        sec_user_id = await f2_worker.resolve_self_sec_user_id(url)
+        if not sec_user_id:
+            return JSONResponse({"ok": False, "msg": "无法解析用户身份（user/self 需有效登录 cookie，或改贴完整主页链接）"}, status_code=400)
+
     tid = worker.manager.new_task(url, sec_user_id, task_type="batch", order=req.order or "order")
-    asyncio.create_task(worker.run_pipeline(tid, sec_user_id, order=req.order or "order"))
-    return {"ok": True, "task_id": tid}
+    asyncio.create_task(worker.run_pipeline(tid, sec_user_id, order=req.order or "order",
+                                            collect_type=collect_type))
+    return {"ok": True, "task_id": tid, "collect_type": collect_type}
 
 
 @app.post("/api/download_single")
@@ -202,6 +215,41 @@ async def delete_video(aweme_id: str, delete_files: int = 1):
                 pass
     db.delete_video(aweme_id)
     return {"ok": True, "removed_files": removed}
+
+
+class BatchDeleteReq(BaseModel):
+    aweme_ids: list = []
+    delete_files: int = 1
+
+
+@app.post("/api/videos/batch_delete")
+async def batch_delete_videos(req: BatchDeleteReq):
+    """批量删除多条历史记录。aweme_ids 非空，默认同时删除本地视频/音频文件。"""
+    ids = [str(x).strip() for x in (req.aweme_ids or []) if str(x).strip()]
+    if not ids:
+        return JSONResponse({"ok": False, "msg": "缺少要删除的记录"}, status_code=400)
+    # 先定位待删记录的本地文件
+    rows = db.list_rows_by_aweme(ids)
+    removed = []
+    if req.delete_files:
+        for row in rows:
+            for p in (row.get("local_path"), row.get("audio_path")):
+                if p and os.path.exists(p):
+                    try:
+                        os.remove(p)
+                        removed.append(p)
+                    except Exception:
+                        pass
+        # 清理由此留下的空任务目录
+        for p in list(removed):
+            d = os.path.dirname(p)
+            try:
+                if os.path.isdir(d) and not os.listdir(d):
+                    os.rmdir(d)
+            except Exception:
+                pass
+    n = db.delete_videos_batch(ids)
+    return {"ok": True, "deleted": n, "removed_files": removed}
 
 
 # ---------------- 历史查询

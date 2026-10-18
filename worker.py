@@ -59,6 +59,19 @@ class TaskManager:
 manager = TaskManager()
 
 
+async def _try_nickname(sec_user_id: str, collect_type: str) -> str:
+    """点赞/收藏列表可能不含当前用户昵称，尝试从用户 profile 获取。
+    失败返回空（不阻塞主流程）。"""
+    if collect_type in ("like", "favorite") and sec_user_id:
+        try:
+            meta = await f2_worker.fetch_single_meta_platform("douyin", sec_user_id)
+            if meta and meta.get("author_nickname"):
+                return meta["author_nickname"]
+        except Exception:
+            pass
+    return ""
+
+
 def _feishu_client():
     t = cfg.get_section("feishu_table")
     if not t or not t.get("app_id") or not t.get("app_secret") or not t.get("base_token"):
@@ -203,8 +216,13 @@ async def _process_one(meta, task, user_path, lark, engine):
             _set_meta(task, meta, write_status="failed", write_error=str(e))
 
 
-async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order"):
+async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order",
+                       collect_type: str = "post", nickname: str = ""):
     """主页批量：采集全部作品链接入库 → 按顺序/随机逐个下载转写。
+    collect_type 决定采集哪类视频：
+      - post     发布（默认，fetch_user_post_videos）
+      - like     点赞（fetch_user_like_videos，需登录 cookie）
+      - favorite 收藏（fetch_user_collection_videos，只用 cookie 识别自己）
     支持过滤：标题命中 skip_titles 的作品（如直播回顾/预告）不入库、不下载、不转写。
     skip_titles 可在设置页 douyin.skip_titles 配置，默认过滤直播回顾/预告/开始/回放。"""
     task = manager.get(task_id)
@@ -237,12 +255,17 @@ async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order"):
             _set_meta(task, m, download_status="pending",
                       transcript_status="pending", transcript="", local_path="")
 
-        metas = await f2_worker.collect_user_videos(sec_user_id, on_meta=_on_meta)
+        if collect_type == "like":
+            metas = await f2_worker.collect_user_like_videos(sec_user_id, on_meta=_on_meta)
+        elif collect_type == "favorite":
+            metas = await f2_worker.collect_user_collection_videos(on_meta=_on_meta)
+        else:
+            metas = await f2_worker.collect_user_videos(sec_user_id, on_meta=_on_meta)
         if not metas:
             task["status"] = "failed"
-            task["error"] = "未采集到任何作品（请检查 cookie 是否有效）"
+            task["error"] = "未采集到任何作品（请检查 cookie 是否有效，点赞/收藏需登录）"
             return
-        task["nickname"] = metas[0].get("author_nickname", "")
+        task["nickname"] = nickname or metas[0].get("author_nickname", "") or (await _try_nickname(sec_user_id, collect_type))
         skipped = 0
         for m in metas:
             if _skip(m):

@@ -167,10 +167,10 @@
 <!-- ===== 主页批量 ===== -->
 <div class="page" id="page-batch">
   <div class="card">
-    <h3>博主主页批量采集下载</h3>
-    <label>博主主页链接（可粘贴多条，每行一条）</label>
-    <textarea id="bt-url" class="url-ta code-ta" placeholder="https://www.douyin.com/user/xxxxx&#10;https://www.douyin.com/user/yyyyy"></textarea>
-    <label>抖音 Cookie（用于采集主页全部作品；会话过期请在此更新，否则无法采集新作品）</label>
+    <h3>主页批量采集下载</h3>
+    <label>链接（支持：博主主页 / 自己主页 / 点赞 / 收藏，可粘贴多条，每行一条）</label>
+    <textarea id="bt-url" class="url-ta code-ta" placeholder="博主主页：https://www.douyin.com/user/xxxxx&#10;自己主页：https://www.douyin.com/user/self&#10;点赞视频：https://www.douyin.com/user/self?showTab=like&#10;收藏视频：https://www.douyin.com/user/self?showTab=favorite"></textarea>
+    <label>抖音 Cookie（采集主页/点赞/收藏必需；会话过期请在此更新，否则无法采集）</label>
     <textarea id="bt-cookie" class="url-ta code-ta" placeholder="粘贴 douyin 登录态 cookie…"></textarea>
     <label>下载顺序</label>
     <select id="bt-order">
@@ -180,7 +180,7 @@
     <div class="row" style="margin-top:16px;">
       <button class="btn" onclick="createBatch()">开始批量任务</button>
     </div>
-    <div class="hint">先通过 cookie 采集博主全部作品链接并入库（batch），再按所选顺序逐个下载转写。cookie 过期后，已入库的作品仍可单独重新下载。</div>
+    <div class="hint">自动识别链接类型：<b>博主主页</b>采集发布视频、<b>?showTab=like</b>采集点赞、<b>?showTab=favorite</b>采集收藏（点赞/收藏需登录态 cookie）。先采集全部作品链接入库，再按所选顺序逐个下载转写。</div>
     <div class="msg" id="bt-msg"></div>
   </div>
   <div class="card">
@@ -220,11 +220,12 @@
       -->
       <button class="btn gray" onclick="refreshHistory()">查询</button>
       <button class="btn" onclick="exportHistory()">导出当前结果</button>
+      <button class="btn danger" id="h-batchdel" onclick="batchDelete()" disabled style="background:#f53f3f;color:#fff">批量删除</button>
     </div>
     <div class="stat" id="h-stats" style="margin-bottom:12px"></div>
     <div id="hist-table-wrap" style="overflow-x:auto">
       <table>
-        <thead><tr><th>标题</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>发布时间</th><th>操作</th></tr></thead>
+        <thead><tr><th style="width:34px"><input type="checkbox" id="h-checkall" onclick="histToggleAll(this)"></th><th>标题</th><th>状态</th><th>视频</th><th>音频</th><th>逐字稿</th><th>发布时间</th><th>操作</th></tr></thead>
         <tbody id="h-body"></tbody>
       </table>
     </div>
@@ -526,6 +527,8 @@ function gotoHistPage() {
 }
 async function refreshHistory() {
   try {
+    const chk = $('h-checkall'); if (chk) chk.checked = false;
+    histUpdateSel();
     const qs = histQuery();
     const r = await fetch('/api/videos?' + qs.toString()); const d = await r.json();
     if (!d.ok) return;
@@ -558,13 +561,14 @@ async function refreshHistory() {
       const title = esc(v.title||v.aweme_id);
       if (isM) {
         return `<div class="mcard">
-          <div class="mtitle">${title}</div>
+          <div class="mrow"><input type="checkbox" class="h-chk" value="${esc(v.aweme_id)}" onchange="histUpdateSel(this)"><span class="mtitle">${title}</span></div>
           <div class="mrow"><span class="lbl">发布时间</span><span>${tm}</span><span class="sp"></span><span class="lbl">状态</span>${stTag}</div>
           <div class="mrow media"><span class="lbl">视频</span>${vlink}<span class="lbl">音频</span>${alink}<span class="lbl">逐字稿</span>${tt}</div>
           <div class="mrow"><span class="lbl">操作</span><span class="ops">${ops}</span></div>
         </div>`;
       }
       return `<tr>
+        <td><input type="checkbox" class="h-chk" value="${esc(v.aweme_id)}" onchange="histUpdateSel(this)"></td>
         <td class="cell-title">${title}</td>
         <td>${stTag}</td>
         <td>${vlink}</td><td>${alink}</td><td>${tt}</td><td style="white-space:nowrap;font-size:12px;color:#86909c">${tm}</td>
@@ -597,6 +601,33 @@ async function delVideo(aweme_id) {
     if (!d.ok) { alert(d.msg || '删除失败'); return; }
     refreshHistory();
   } catch(e) { alert('删除请求失败：' + e); }
+}
+
+// ------- 历史批量删除 -------
+function histSelected() {
+  return Array.from(document.querySelectorAll('.h-chk:checked')).map(c => c.value);
+}
+function histUpdateSel() {
+  const n = histSelected().length;
+  const btn = $('h-batchdel');
+  if (btn) { btn.disabled = n === 0; btn.textContent = n ? `批量删除(${n})` : '批量删除'; }
+}
+function histToggleAll(chk) {
+  document.querySelectorAll('.h-chk').forEach(c => c.checked = chk.checked);
+  histUpdateSel();
+}
+async function batchDelete() {
+  const ids = histSelected();
+  if (!ids.length) { alert('请先勾选要删除的记录'); return; }
+  if (!confirm(`确认删除选中的 ${ids.length} 条记录？将同时删除本地视频/音频文件（不可恢复）。`)) return;
+  try {
+    const r = await fetch('/api/videos/batch_delete', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({aweme_ids: ids, delete_files: 1})});
+    const d = await r.json();
+    if (!d.ok) { alert(d.msg || '批量删除失败'); return; }
+    const chk = $('h-checkall'); if (chk) chk.checked = false;
+    refreshHistory();
+  } catch(e) { alert('批量删除请求失败：' + e); }
 }
 
 // ------- 设置 -------
