@@ -142,7 +142,8 @@ async def create_task(req: TaskReq):
         if not sec_user_id:
             return JSONResponse({"ok": False, "msg": "无法解析用户身份（user/self 需有效登录 cookie，或改贴完整主页链接）"}, status_code=400)
 
-    tid = worker.manager.new_task(url, sec_user_id, task_type="batch", order=req.order or "order")
+    tid = worker.manager.new_task(url, sec_user_id, task_type="batch", order=req.order or "order",
+                                  collect_type=collect_type)
     asyncio.create_task(worker.run_pipeline(tid, sec_user_id, order=req.order or "order",
                                             collect_type=collect_type))
     return {"ok": True, "task_id": tid, "collect_type": collect_type}
@@ -352,6 +353,32 @@ async def delete_task(task_id: str, delete_files: int = 1):
     if not ok:
         return JSONResponse({"ok": False, "msg": "任务不存在"}, status_code=404)
     return {"ok": True, "removed_files": removed}
+
+
+@app.post("/api/task/{task_id}/cookie")
+async def update_task_cookie(task_id: str, request: Request):
+    """就地更新任务 cookie：写全局 douyin.cookie，若任务因 cookie 过期暂停则自动恢复续跑。
+    无需重新创建任务/重新采集——已入库部分保留，从剩余未处理条目继续。"""
+    import json as _json
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "msg": "请求体需为 JSON"}, status_code=400)
+    cookie = (body.get("cookie") or "").strip()
+    if not cookie:
+        return JSONResponse({"ok": False, "msg": "cookie 不能为空"}, status_code=400)
+
+    # 写全局配置（后续采集/下载自动用新 cookie）
+    cfg.set_value("douyin.cookie", cookie)
+
+    t = worker.manager.get(task_id)
+    if not t:
+        return {"ok": True, "msg": "cookie 已更新"}
+    # 若任务正因 cookie 过期暂停 → 自动恢复续跑
+    if t.get("paused"):
+        worker.manager.resume(task_id)
+        return {"ok": True, "msg": "cookie 已更新，任务已恢复", "task_status": "running"}
+    return {"ok": True, "msg": "cookie 已更新，任务无需恢复", "task_status": t.get("status", "")}
 
 
 # ---------------- 设置

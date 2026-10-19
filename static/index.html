@@ -87,6 +87,13 @@
   .modal-head { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #eef0f6; }
   .modal-head b { font-size:15px; color:#1f2329; }
   .modal-body { padding:16px 18px; overflow:auto; white-space:pre-wrap; word-break:break-all; line-height:1.85; font-size:14px; color:#2a3142; }
+  .cookie-area { width:100%; min-height:120px; border:1px solid #e2e6f0; border-radius:10px; padding:12px; font-size:13px; line-height:1.7; resize:vertical; outline:none; font-family:monospace; color:#1f2329; }
+  .cookie-area:focus { border-color:#165dff; box-shadow:0 0 0 3px rgba(22,93,255,.12); }
+  .cookie-tip { font-size:12px; color:#8a93a8; margin:8px 2px 12px; }
+  .cookie-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:12px; }
+  .btn.primary { background:#165dff; color:#fff; border:none; padding:8px 18px; border-radius:8px; cursor:pointer; font-size:14px; }
+  .btn.primary:hover { background:#0e4fd6; }
+  .btn.cancel { background:#f2f3f7; color:#4e5a70; border:none; padding:8px 18px; border-radius:8px; cursor:pointer; font-size:14px; }
   @media(max-width:760px){
     .grid2{grid-template-columns:1fr}
     .row{flex-direction:column;align-items:stretch}
@@ -486,6 +493,7 @@ function taskCard(t) {
       <span class="meta" style="display:flex;align-items:center;gap:8px">
         ${new Date(t.created_at*1000).toLocaleString()}
         ${ctrlBtn}
+        ${t.task_type === 'batch' ? `<button class="btn gray" style="padding:4px 12px;font-size:12px;background:#165dff;color:#fff" onclick="openCookieModal('${t.task_id}')">🔑 填 Cookie</button>` : ''}
         <button class="btn gray" style="padding:4px 12px;font-size:12px;color:#fff;background:#f53f3f" onclick="deleteTask('${t.task_id}')">🗑 删除</button>
       </span>
     </div>
@@ -507,12 +515,41 @@ function tag(st) {
   const [c, label] = m[st] || ['warn', st];
   return `<span class="tag ${c}">${label}</span>`;
 }
+let _cookieTaskId = '';
 function openTranscript(btn) {
   $('modal-body').textContent = btn.dataset.tt || '';
   $('modal').classList.add('show');
 }
 function closeModal() {
   $('modal').classList.remove('show');
+}
+function openCookieModal(taskId) {
+  _cookieTaskId = taskId;
+  $('cookie-task').textContent = taskId;
+  $('cookie-text').value = '';
+  $('cookie-modal').classList.add('show');
+}
+function closeCookieModal() {
+  $('cookie-modal').classList.remove('show');
+}
+async function submitCookie() {
+  const taskId = _cookieTaskId || '';
+  if (!taskId) { toast('任务标识缺失，请重新打开弹窗'); return; }
+  const cookie = $('cookie-text').value.trim();
+  if (!cookie) { toast('请粘贴抖音 cookie 后保存'); return; }
+  const btn = $('cookie-save'); btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    const r = await fetch(`/api/task/${taskId}/cookie`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({cookie})
+    });
+    const d = await r.json();
+    if (!d.ok) { toast(d.msg || '保存失败'); return; }
+    closeCookieModal();
+    toast(d.msg || 'cookie 已更新');
+    refreshTasks();
+  } catch(e) { toast('保存请求失败：' + e); }
+  finally { btn.disabled = false; btn.textContent = '保存并继续'; }
 }
 function urlCheck(u) {
   // 安全过滤：只接受 douyin.com 域名链接
@@ -728,6 +765,25 @@ refreshTasks();
       <button class="btn gray" onclick="closeModal()">关闭</button>
     </div>
     <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- 填 Cookie 弹窗 -->
+<div id="cookie-modal" class="modal" onclick="if(event.target===this)closeCookieModal()">
+  <div class="modal-box" style="max-width:560px">
+    <div class="modal-head">
+      <b>🔑 更新抖音 Cookie</b>
+      <button class="btn gray" onclick="closeCookieModal()">关闭</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:#1f2329;margin-bottom:6px">任务 <code id="cookie-task" style="color:#165dff">-</code> 因 cookie 过期已暂停</div>
+      <div class="cookie-tip">打开抖音 → F12 → Application → Cookies，复制当前登录的 cookie 粘贴到下方，保存后该任务会自动从剩余条目继续下载，无需重新采集。</div>
+      <textarea id="cookie-text" class="cookie-area" placeholder="粘贴抖音 cookie 字符串…"></textarea>
+      <div class="cookie-actions">
+        <button class="btn cancel" onclick="closeCookieModal()">取消</button>
+        <button class="btn primary" id="cookie-save" onclick="submitCookie()">保存并继续</button>
+      </div>
+    </div>
   </div>
 </div>
 

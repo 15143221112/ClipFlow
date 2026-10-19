@@ -37,7 +37,7 @@ class TaskManager:
         self.tasks = {}
 
     def new_task(self, url: str, sec_user_id: str, task_type: str = "batch",
-                 order: str = "order") -> str:
+                 order: str = "order", collect_type: str = "post") -> str:
         tid = uuid.uuid4().hex[:12]
         self.tasks[tid] = {
             "task_id": tid, "url": url, "sec_user_id": sec_user_id or "",
@@ -48,6 +48,8 @@ class TaskManager:
             "cancelled": False,                # 是否被用户取消/删除
             "error": "", "created_at": time.time(),
             "nickname": "", "videos": [],
+            "_collect_type": collect_type,     # batch 采集类型 post/like/favorite
+            "_waiting_cookie": False,          # 是否因 cookie 过期而暂停等待新 cookie
         }
         return tid
 
@@ -69,17 +71,22 @@ class TaskManager:
         return True
 
     def resume(self, task_id):
-        """恢复已暂停任务：置 paused=False，重新调度 worker 继续。"""
+        """恢复已暂停任务：置 paused=False，重新调度 worker 继续。
+        - 普通暂停：batch 重新采集（用 _collect_type），跳过已完成条目续跑
+        - cookie 过期暂停（_waiting_cookie）：清标记，跳过重新采集，直接续跑已入库的剩余条目"""
         t = self.tasks.get(task_id)
         if not t or not t.get("paused"):
             return False
         t["paused"] = False
         t["status"] = "running"
-        # 重新拉起 worker 续跑（从剩余未处理条目继续）
+        # cookie 等待恢复：已入库部分保留，跳过重新采集
+        skip_collect = bool(t.get("_waiting_cookie"))
+        t["_waiting_cookie"] = False
         if t.get("task_type") == "batch":
             asyncio.create_task(run_pipeline(task_id, t.get("sec_user_id", ""),
                                              order=t.get("order", "order"),
-                                             collect_type="post", resume=True))
+                                             collect_type=t.get("_collect_type", "post"),
+                                             resume=True, skip_collect=skip_collect))
         else:
             asyncio.create_task(process_single(task_id, t.get("_target", ""),
                                                platform=t.get("_platform", "douyin"),
@@ -273,13 +280,17 @@ async def _process_one(meta, task, user_path, lark, engine):
 
 
 async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order",
-                       collect_type: str = "post", nickname: str = "", resume: bool = False):
+                       collect_type: str = "post", nickname: str = "", resume: bool = False,
+                       skip_collect: bool = False):
     """主页批量：采集全部作品链接入库 → 按顺序/随机逐个下载转写。
     collect_type 决定采集哪类视频：
       - post     发布（默认，fetch_user_post_videos）
       - like     点赞（fetch_user_like_videos，需登录 cookie）
       - favorite 收藏（fetch_user_collection_videos，只用 cookie 识别自己）
     resume=True 表示从暂停处恢复：跳过已下载/已完成的条目继续处理。
+    skip_collect=True 表示 cookie 过期恢复：跳过重新采集，直接用已入库的剩余条目续跑。
+    采集阶段若 cookie 过期/失效：任务自动置为「暂停等待新 cookie」（_waiting_cookie），
+    用户就地更新 cookie 后恢复，无需重新从头采集。
     支持过滤：标题命中 skip_titles 的作品（如直播回顾/预告）不入库、不下载、不转写。
     skip_titles 可在设置页 douyin.skip_titles 配置，默认过滤直播回顾/预告/开始/回放。"""
     task = manager.get(task_id)
@@ -313,12 +324,30 @@ async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order",
             _set_meta(task, m, download_status="pending",
                       transcript_status="pending", transcript="", local_path="")
 
-        if collect_type == "like":
-            metas = await f2_worker.collect_user_like_videos(sec_user_id, on_meta=_on_meta)
-        elif collect_type == "favorite":
-            metas = await f2_worker.collect_user_collection_videos(on_meta=_on_meta)
+        # cookie 过期恢复：跳过重新采集，直接用已入库的剩余条目续跑
+        if skip_collect:
+            metas = task.get("videos") or []
         else:
-            metas = await f2_worker.collect_user_videos(sec_user_id, on_meta=_on_meta)
+            try:
+                if collect_type == "like":
+                    metas = await f2_worker.collect_user_like_videos(sec_user_id, on_meta=_on_meta)
+                elif collect_type == "favorite":
+                    metas = await f2_worker.collect_user_collection_videos(on_meta=_on_meta)
+                else:
+                    metas = await f2_worker.collect_user_videos(sec_user_id, on_meta=_on_meta)
+            except Exception as e:
+                msg = str(e)
+                # 识别 cookie 过期/失效 → 任务暂停等待新 cookie，就地更新后恢复
+                if any(k in msg for k in ("cookie", "Cookie", "登录", "login", "Login",
+                                          "expired", "失效", "会话", "验证", "captcha", "Captcha")):
+                    task["status"] = "paused"
+                    task["paused"] = True
+                    task["_waiting_cookie"] = True
+                    task["error"] = "采集时 cookie 已过期或失效，请在任务卡点『填 Cookie』就地更新后自动继续"
+                    return
+                task["status"] = "failed"
+                task["error"] = f"采集失败：{msg}"
+                return
         if not metas:
             task["status"] = "failed"
             task["error"] = "未采集到任何作品（请检查 cookie 是否有效，点赞/收藏需登录）"
