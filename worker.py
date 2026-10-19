@@ -44,6 +44,8 @@ class TaskManager:
             "task_type": task_type,            # batch / single
             "order": order,                    # order 顺序 / random 随机
             "status": "pending",
+            "paused": False,                   # 是否被用户暂停
+            "cancelled": False,                # 是否被用户取消/删除
             "error": "", "created_at": time.time(),
             "nickname": "", "videos": [],
         }
@@ -54,6 +56,60 @@ class TaskManager:
 
     def all(self):
         return list(self.tasks.values())
+
+    def pause(self, task_id):
+        """暂停任务：置 paused=True，worker 循环下次检查到即停（不删数据，可恢复）。"""
+        t = self.tasks.get(task_id)
+        if not t:
+            return False
+        if t["status"] in ("done", "failed", "cancelled"):
+            return False
+        t["paused"] = True
+        t["status"] = "paused"
+        return True
+
+    def resume(self, task_id):
+        """恢复已暂停任务：置 paused=False，重新调度 worker 继续。"""
+        t = self.tasks.get(task_id)
+        if not t or not t.get("paused"):
+            return False
+        t["paused"] = False
+        t["status"] = "running"
+        # 重新拉起 worker 续跑（从剩余未处理条目继续）
+        if t.get("task_type") == "batch":
+            asyncio.create_task(run_pipeline(task_id, t.get("sec_user_id", ""),
+                                             order=t.get("order", "order"),
+                                             collect_type="post", resume=True))
+        else:
+            asyncio.create_task(process_single(task_id, t.get("_target", ""),
+                                               platform=t.get("_platform", "douyin"),
+                                               engine=t.get("_engine", "f2")))
+        return True
+
+    def remove(self, task_id, delete_files: bool = True):
+        """删除任务：从内存移除。delete_files 时同时删除该任务下载目录的文件。"""
+        t = self.tasks.pop(task_id, None)
+        if not t:
+            return False, []
+        t["cancelled"] = True
+        removed = []
+        if delete_files:
+            # 删除该任务目录下的视频/音频文件
+            task_dir = os.path.join(ROOT, task_id)
+            for name in (t.get("videos") or []):
+                for key in ("local_path", "audio_path"):
+                    p = name.get(key)
+                    if p and os.path.exists(p):
+                        try:
+                            os.remove(p); removed.append(p)
+                        except Exception:
+                            pass
+            try:
+                if os.path.isdir(task_dir) and not os.listdir(task_dir):
+                    os.rmdir(task_dir)
+            except Exception:
+                pass
+        return True, removed
 
 
 manager = TaskManager()
@@ -217,18 +273,20 @@ async def _process_one(meta, task, user_path, lark, engine):
 
 
 async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order",
-                       collect_type: str = "post", nickname: str = ""):
+                       collect_type: str = "post", nickname: str = "", resume: bool = False):
     """主页批量：采集全部作品链接入库 → 按顺序/随机逐个下载转写。
     collect_type 决定采集哪类视频：
       - post     发布（默认，fetch_user_post_videos）
       - like     点赞（fetch_user_like_videos，需登录 cookie）
       - favorite 收藏（fetch_user_collection_videos，只用 cookie 识别自己）
+    resume=True 表示从暂停处恢复：跳过已下载/已完成的条目继续处理。
     支持过滤：标题命中 skip_titles 的作品（如直播回顾/预告）不入库、不下载、不转写。
     skip_titles 可在设置页 douyin.skip_titles 配置，默认过滤直播回顾/预告/开始/回放。"""
     task = manager.get(task_id)
     if not task:
         return
     task["status"] = "running"
+    task["paused"] = False
     try:
         skips = cfg.get_section("douyin", "skip_titles") or \
             ["直播回顾", "直播预告", "直播开始", "直播回放"]
@@ -278,10 +336,24 @@ async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order",
         # 2. 逐条处理（顺序/随机）
         engine = cfg.get_section("asr", "engine") or "local"
         items = list(task["videos"])
-        if order == "random":
+        if order == "random" and not resume:
             random.shuffle(items)
         for v in items:
+            # 暂停检查：用户点了暂停就停
+            if task.get("paused") or task.get("cancelled"):
+                if not task.get("cancelled"):
+                    task["status"] = "paused"
+                return
+            # 恢复续跑：跳过已下载/已完成的，避免重复处理
+            if resume and (v.get("transcript_status") in ("done", "empty")
+                           or v.get("download_status") in ("downloaded", "failed")):
+                continue
             await _process_one(v, task, user_path, lark, engine)
+            # 单条处理完再检查一次暂停（处理耗时可能较长）
+            if task.get("paused") or task.get("cancelled"):
+                if not task.get("cancelled"):
+                    task["status"] = "paused"
+                return
 
         task["status"] = "done"
     except Exception as e:
@@ -296,7 +368,11 @@ async def process_single(task_id: str, target: str, platform: str = "douyin", en
     task = manager.get(task_id)
     if not task:
         return
+    task["_target"] = target
+    task["_platform"] = platform
+    task["_engine"] = engine
     task["status"] = "running"
+    task["paused"] = False
     try:
         lark = _feishu_client()
         if lark:
@@ -305,6 +381,10 @@ async def process_single(task_id: str, target: str, platform: str = "douyin", en
             except Exception as e:
                 task["error"] = f"建字段警告(跳过): {e}"
 
+        if task.get("paused") or task.get("cancelled"):
+            if not task.get("cancelled"):
+                task["status"] = "paused"
+            return
         if engine == "ytdlp":
             meta = await asyncio.to_thread(engine_ytdlp.fetch_meta, target)
         else:
@@ -323,6 +403,10 @@ async def process_single(task_id: str, target: str, platform: str = "douyin", en
         os.makedirs(user_path, exist_ok=True)
         asr_engine = cfg.get_section("asr", "engine") or "local"
         await _process_one(meta, task, user_path, lark, asr_engine)
+        if task.get("paused") or task.get("cancelled"):
+            if not task.get("cancelled"):
+                task["status"] = "paused"
+            return
         task["status"] = "done"
     except Exception as e:
         task["status"] = "failed"

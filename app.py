@@ -321,6 +321,39 @@ async def task_detail(task_id: str):
     return t
 
 
+@app.post("/api/task/{task_id}/pause")
+async def pause_task(task_id: str):
+    """暂停任务（batch/single）。已完成的/已删除的不能暂停。"""
+    ok = worker.manager.pause(task_id)
+    if not ok:
+        t = worker.manager.get(task_id)
+        if not t:
+            return JSONResponse({"ok": False, "msg": "任务不存在"}, status_code=404)
+        return JSONResponse({"ok": False, "msg": "任务不可暂停（已完成/失败/已删除）"}, status_code=400)
+    return {"ok": True, "msg": "已暂停"}
+
+
+@app.post("/api/task/{task_id}/resume")
+async def resume_task(task_id: str):
+    """恢复已暂停的任务，从未完成的条目继续。"""
+    ok = worker.manager.resume(task_id)
+    if not ok:
+        t = worker.manager.get(task_id)
+        if not t:
+            return JSONResponse({"ok": False, "msg": "任务不存在"}, status_code=404)
+        return JSONResponse({"ok": False, "msg": "任务不是暂停状态，无法恢复"}, status_code=400)
+    return {"ok": True, "msg": "已恢复"}
+
+
+@app.delete("/api/task/{task_id}")
+async def delete_task(task_id: str, delete_files: int = 1):
+    """删除任务：从内存移除，可选同时删除该任务下载的视频/音频文件。"""
+    ok, removed = worker.manager.remove(task_id, delete_files=bool(delete_files))
+    if not ok:
+        return JSONResponse({"ok": False, "msg": "任务不存在"}, status_code=404)
+    return {"ok": True, "removed_files": removed}
+
+
 # ---------------- 设置
 def _mask(v: str) -> str:
     if not v:

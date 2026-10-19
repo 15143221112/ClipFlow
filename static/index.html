@@ -407,6 +407,31 @@ async function refreshTasks() {
     $('bt-task').innerHTML = renderTasks(d.tasks, 'batch');
   } catch(e) {}
 }
+async function pauseTask(id) {
+  try {
+    const r = await fetch(`/api/task/${id}/pause`, {method:'POST'});
+    const d = await r.json();
+    if (!d.ok) { alert(d.msg || '暂停失败'); return; }
+    refreshTasks();
+  } catch(e) { alert('暂停请求失败：' + e); }
+}
+async function resumeTask(id) {
+  try {
+    const r = await fetch(`/api/task/${id}/resume`, {method:'POST'});
+    const d = await r.json();
+    if (!d.ok) { alert(d.msg || '恢复失败'); return; }
+    refreshTasks();
+  } catch(e) { alert('恢复请求失败：' + e); }
+}
+async function deleteTask(id) {
+  if (!confirm('确认删除该任务？将同时删除该任务下载的视频/音频文件（不可恢复）。')) return;
+  try {
+    const r = await fetch(`/api/task/${id}?delete_files=1`, {method:'DELETE'});
+    const d = await r.json();
+    if (!d.ok) { alert(d.msg || '删除失败'); return; }
+    refreshTasks();
+  } catch(e) { alert('删除请求失败：' + e); }
+}
 function renderTasks(tasks, type) {
   const t = tasks.filter(x => x.task_type === type);
   if (!t.length) return '<div class="empty">暂无任务</div>';
@@ -431,8 +456,8 @@ function taskCard(t) {
   const done = vids.filter(v => v.transcript_status === 'done').length;
   const downloaded = vids.filter(v => v.download_status === 'downloaded').length;
   const failed = vids.filter(v => v.download_status === 'failed' || v.transcript_status === 'failed').length;
-  const stMap = {pending:'待处理', running:'运行中', done:'已完成', failed:'失败'};
-  const stCls = {done:'ok', running:'run', failed:'fail', pending:'warn'};
+  const stMap = {pending:'待处理', running:'运行中', paused:'已暂停', done:'已完成', failed:'失败'};
+  const stCls = {done:'ok', running:'run', paused:'warn', failed:'fail', pending:'warn'};
   const pcts = vids.map(stepPct).filter(p => p >= 0);
   const pct = pcts.length ? Math.round(pcts.reduce((a,b)=>a+b,0) / pcts.length) : (vids.length ? 5 : 0);
   const body = vids.slice(0,50).map(v => {
@@ -448,11 +473,21 @@ function taskCard(t) {
     </div>`;
   }).join('');
   const nick = t.nickname ? `（${esc(t.nickname)}）` : '';
+  const isBusy = t.status === 'running' || t.status === 'pending' || t.status === 'paused';
+  const ctrlBtn = isBusy
+    ? (t.status === 'paused'
+        ? `<button class="btn" style="padding:4px 12px;font-size:12px" onclick="resumeTask('${t.task_id}')">▶ 继续</button>`
+        : `<button class="btn gray" style="padding:4px 12px;font-size:12px" onclick="pauseTask('${t.task_id}')">⏸ 暂停</button>`)
+    : '';
   return `<div class="card">
     <div class="task-head">
       <h3 style="margin:0">${esc(t.url || t.sec_user_id)}${nick}
         <span class="tag ${stCls[t.status]||'warn'}">${stMap[t.status]||t.status}</span></h3>
-      <span class="meta">${new Date(t.created_at*1000).toLocaleString()}</span>
+      <span class="meta" style="display:flex;align-items:center;gap:8px">
+        ${new Date(t.created_at*1000).toLocaleString()}
+        ${ctrlBtn}
+        <button class="btn gray" style="padding:4px 12px;font-size:12px;color:#fff;background:#f53f3f" onclick="deleteTask('${t.task_id}')">🗑 删除</button>
+      </span>
     </div>
     ${t.error ? `<div style="color:#dc2626;font-size:13px;margin:8px 0">${esc(t.error)}</div>` : ''}
     <div class="pbar"><div class="track"><i class="fill" style="width:${pct}%"></i></div><span class="pnum">${pct}%</span></div>
