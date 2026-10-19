@@ -282,15 +282,21 @@ async def _process_one(meta, task, user_path, lark, engine):
 async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order",
                        collect_type: str = "post", nickname: str = "", resume: bool = False,
                        skip_collect: bool = False):
-    """主页批量：采集全部作品链接入库 → 按顺序/随机逐个下载转写。
+    """主页批量：采集与下载「并行」（生产者-消费者）。
     collect_type 决定采集哪类视频：
       - post     发布（默认，fetch_user_post_videos）
       - like     点赞（fetch_user_like_videos，需登录 cookie）
       - favorite 收藏（fetch_user_collection_videos，只用 cookie 识别自己）
-    resume=True 表示从暂停处恢复：跳过已下载/已完成的条目继续处理。
-    skip_collect=True 表示 cookie 过期恢复：跳过重新采集，直接用已入库的剩余条目续跑。
-    采集阶段若 cookie 过期/失效：任务自动置为「暂停等待新 cookie」（_waiting_cookie），
-    用户就地更新 cookie 后恢复，无需重新从头采集。
+    并行模型（核心诉求：采集一气呵成不停，防止 cookie 过期）：
+      - 采集协程：持续翻页采集全部链接，边采边实时入库（on_meta 回调），直到全部拿完；
+      - 下载协程：与采集并行，实时从 task.videos 取「未处理」条目逐个下载转写；
+      - 采集协程先结束没关系，下载协程继续把剩余消费完。
+    暂停/恢复：
+      - 用户暂停/删除：两协程检查到即停（已采到并已下载的进度保留）；
+      - resume=True：跳过已下载/已完成的条目续跑；
+      - skip_collect=True（cookie 过期恢复）：不重新采集，直接用已入库剩余条目续跑。
+    采集阶段若 cookie 过期/失效：采集协程记录状态，下载协程先把已采到的消费完，
+    收尾时任务置为「暂停等待新 cookie」（_waiting_cookie），用户就地更新后恢复续跑。
     支持过滤：标题命中 skip_titles 的作品（如直播回顾/预告）不入库、不下载、不转写。
     skip_titles 可在设置页 douyin.skip_titles 配置，默认过滤直播回顾/预告/开始/回放。"""
     task = manager.get(task_id)
@@ -315,19 +321,27 @@ async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order",
 
         user_path = os.path.join(ROOT, task_id)
         os.makedirs(user_path, exist_ok=True)
+        engine = cfg.get_section("asr", "engine") or "local"
 
-        # 1. 采集全部作品（回调时跳过直播类，不入 task.videos）
+        # 采集/下载共享状态
+        state = {"collect_done": False, "cookie_wait": False, "collect_error": None, "nick": nickname}
+
+        # ---- 实时入库回调：每采到一条立刻入库（供下载协程消费） ----
         def _on_meta(m):
             if _skip(m):
                 task["skip_count"] = task.get("skip_count", 0) + 1
                 return
             _set_meta(task, m, download_status="pending",
                       transcript_status="pending", transcript="", local_path="")
+            db.upsert_video(_record_for(m, "batch"))
 
-        # cookie 过期恢复：跳过重新采集，直接用已入库的剩余条目续跑
-        if skip_collect:
-            metas = task.get("videos") or []
-        else:
+        # ---- 采集协程：持续翻页直到全部采完 ----
+        async def _collect():
+            # cookie 过期恢复且已采到部分 → 跳过重新采集，用已入库剩余续跑
+            if skip_collect and (task.get("videos") or []):
+                state["collect_done"] = True
+                state["collect_count"] = len(task.get("videos") or [])
+                return
             try:
                 if collect_type == "like":
                     metas = await f2_worker.collect_user_like_videos(sec_user_id, on_meta=_on_meta)
@@ -335,55 +349,67 @@ async def run_pipeline(task_id: str, sec_user_id: str, order: str = "order",
                     metas = await f2_worker.collect_user_collection_videos(on_meta=_on_meta)
                 else:
                     metas = await f2_worker.collect_user_videos(sec_user_id, on_meta=_on_meta)
+                state["collect_done"] = True
+                state["collect_count"] = len(metas)
+                if metas:
+                    state["nick"] = nickname or metas[0].get("author_nickname", "") or (
+                        await _try_nickname(sec_user_id, collect_type))
             except Exception as e:
                 msg = str(e)
-                # 识别 cookie 过期/失效 → 任务暂停等待新 cookie，就地更新后恢复
+                # 识别 cookie 过期/失效 → 记状态，先把已采到的消费完，收尾统一处理
                 if any(k in msg for k in ("cookie", "Cookie", "登录", "login", "Login",
                                           "expired", "失效", "会话", "验证", "captcha", "Captcha")):
-                    task["status"] = "paused"
-                    task["paused"] = True
-                    task["_waiting_cookie"] = True
-                    task["error"] = "采集时 cookie 已过期或失效，请在任务卡点『填 Cookie』就地更新后自动继续"
+                    state["cookie_wait"] = True
+                else:
+                    state["collect_error"] = msg
+                state["collect_done"] = True
+
+        # ---- 下载协程：与采集并行，实时消费未处理条目 ----
+        async def _download():
+            while True:
+                if task.get("paused") or task.get("cancelled"):
+                    if not task.get("cancelled"):
+                        task["status"] = "paused"
                     return
-                task["status"] = "failed"
-                task["error"] = f"采集失败：{msg}"
-                return
-        if not metas:
-            task["status"] = "failed"
-            task["error"] = "未采集到任何作品（请检查 cookie 是否有效，点赞/收藏需登录）"
+                # 取下一个未处理条目
+                nxt = None
+                for v in task.get("videos") or []:
+                    if resume and (v.get("transcript_status") in ("done", "empty")
+                                   or v.get("download_status") in ("downloaded", "failed")):
+                        continue
+                    if v.get("download_status") == "pending" and v.get("transcript_status") == "pending":
+                        nxt = v
+                        break
+                if nxt is None:
+                    if state["collect_done"]:
+                        return  # 采集完成且无未处理 → 结束
+                    await asyncio.sleep(2)  # 采集还没完，稍候再取
+                    continue
+                await _process_one(nxt, task, user_path, lark, engine)
+                if task.get("paused") or task.get("cancelled"):
+                    if not task.get("cancelled"):
+                        task["status"] = "paused"
+                    return
+
+        # 并行跑：采集 + 下载 同时进行
+        await asyncio.gather(_collect(), _download())
+
+        # ---- 收尾判定 ----
+        if task.get("paused") or task.get("cancelled"):
+            return  # 状态已在协程内设置
+        if state["nick"]:
+            task["nickname"] = state["nick"]
+        if state["cookie_wait"]:
+            task["status"] = "paused"
+            task["paused"] = True
+            task["_waiting_cookie"] = True
+            task["error"] = "采集时 cookie 已过期或失效，已采到的链接已处理完毕。请在任务卡点『填 Cookie』就地更新后自动继续"
             return
-        task["nickname"] = nickname or metas[0].get("author_nickname", "") or (await _try_nickname(sec_user_id, collect_type))
-        skipped = 0
-        for m in metas:
-            if _skip(m):
-                skipped += 1
-                continue
-            db.upsert_video(_record_for(m, "batch"))
-        if skipped:
-            task["skip_count"] = skipped
-
-        # 2. 逐条处理（顺序/随机）
-        engine = cfg.get_section("asr", "engine") or "local"
-        items = list(task["videos"])
-        if order == "random" and not resume:
-            random.shuffle(items)
-        for v in items:
-            # 暂停检查：用户点了暂停就停
-            if task.get("paused") or task.get("cancelled"):
-                if not task.get("cancelled"):
-                    task["status"] = "paused"
-                return
-            # 恢复续跑：跳过已下载/已完成的，避免重复处理
-            if resume and (v.get("transcript_status") in ("done", "empty")
-                           or v.get("download_status") in ("downloaded", "failed")):
-                continue
-            await _process_one(v, task, user_path, lark, engine)
-            # 单条处理完再检查一次暂停（处理耗时可能较长）
-            if task.get("paused") or task.get("cancelled"):
-                if not task.get("cancelled"):
-                    task["status"] = "paused"
-                return
-
+        if state["collect_error"]:
+            task["status"] = "failed"
+            task["error"] = f"采集失败：{state['collect_error']}"
+            return
+        # 采集完成且所有条目处理完 → done
         task["status"] = "done"
     except Exception as e:
         task["status"] = "failed"
